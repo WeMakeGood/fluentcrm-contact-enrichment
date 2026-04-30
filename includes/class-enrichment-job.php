@@ -321,9 +321,44 @@ SCHEMA;
 			$data = \FluentCrm\App\Services\Sanitize::contactNote( $data );
 		}
 
-		$note = \FluentCrm\App\Models\CompanyNote::create( $data );
+		// Same-day replace: if the most recent enrichment note on this
+		// company was created today, update it in place rather than
+		// appending a duplicate. Re-clicking Enrich on the same day
+		// shouldn't pile up notes; cross-day re-enrichments preserve
+		// history.
+		$existing = self::find_todays_research_note( (int) $company->id );
+		if ( $existing ) {
+			$existing->fill( array(
+				'description' => $data['description'],
+				'created_at'  => $data['created_at'],
+			) )->save();
+			do_action( 'fluent_crm/company_note_updated', $existing, $company, $data );
+			return;
+		}
 
+		$note = \FluentCrm\App\Models\CompanyNote::create( $data );
 		do_action( 'fluent_crm/company_note_added', $note, $company, $data );
+	}
+
+	/**
+	 * Look for an enrichment-research note on this company created today.
+	 * Matches by title prefix so we ignore generic admin notes that may
+	 * have been added manually.
+	 *
+	 * @param int $company_id
+	 * @return object|null  CompanyNote or null
+	 */
+	private static function find_todays_research_note( $company_id ) {
+		$today_prefix = sprintf(
+			/* translators: %s: ISO date */
+			__( 'Enrichment Research — %s', 'fluentcrm-contact-enrichment' ),
+			current_time( 'Y-m-d' )
+		);
+
+		return \FluentCrm\App\Models\CompanyNote::where( 'subscriber_id', $company_id )
+			->where( 'title', $today_prefix )
+			->orderBy( 'id', 'desc' )
+			->first();
 	}
 
 	/**
