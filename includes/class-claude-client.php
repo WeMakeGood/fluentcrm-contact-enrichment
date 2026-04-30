@@ -159,19 +159,37 @@ class FCE_Claude_Client {
 			return self::error_result( $msg, $decoded );
 		}
 
-		// Success: walk the content array, concatenating every text block.
+		// Success: walk the content array. Build two views of the assistant's
+		// answer in one pass:
+		//
+		//   $text — the concatenated plain text of every text block, used
+		//   for JSON extraction (we don't want citation markup confusing
+		//   the parser).
+		//
+		//   $cited_text — the same content with each cited span converted
+		//   to a Markdown link "[cited text](url)" using the structured
+		//   citations Claude returns. Inline <cite ...>...</cite> tags
+		//   that Claude also emits get stripped, since the structured
+		//   citations now carry the same meaning in a parseable way.
 		$text         = '';
+		$cited_text   = '';
 		$search_count = 0;
 		if ( isset( $decoded['content'] ) && is_array( $decoded['content'] ) ) {
 			foreach ( $decoded['content'] as $block ) {
 				$type = isset( $block['type'] ) ? $block['type'] : '';
 				if ( 'text' === $type && isset( $block['text'] ) ) {
-					$text .= $block['text'];
+					$plain         = (string) $block['text'];
+					$text         .= $plain;
+					$cited_text   .= self::format_cited_block( $plain, $block['citations'] ?? array() );
 				} elseif ( 'server_tool_use' === $type ) {
 					$search_count++;
 				}
 			}
 		}
+
+		// Strip any inline <cite ...>...</cite> tags Claude emitted in the
+		// prose. We rely on structured citations alone for source linking.
+		$cited_text = preg_replace( '#</?cite\b[^>]*>#i', '', $cited_text );
 
 		// `pause_turn` means the model paused mid-tool-use. We don't
 		// implement the continuation loop in this version; surface it as a
@@ -185,6 +203,7 @@ class FCE_Claude_Client {
 
 		return array(
 			'text'         => $text,
+			'cited_text'   => $cited_text,
 			'raw'          => $decoded,
 			'error'        => null,
 			'search_count' => $search_count,
@@ -192,6 +211,50 @@ class FCE_Claude_Client {
 	}
 
 	/**
+	 * If a text block has structured citations attached, wrap the block's
+	 * text in a Markdown link to the first citation's URL. (Claude attaches
+	 * citations at the block level, and a single block typically corresponds
+	 * to a single cited claim.)
+	 *
+	 * @param string $plain
+	 * @param array  $citations
+	 * @return string
+	 */
+	private static function format_cited_block( $plain, $citations ) {
+		if ( empty( $citations ) || ! is_array( $citations ) ) {
+			return $plain;
+		}
+
+		$first = $citations[0];
+		$url   = isset( $first['url'] ) ? (string) $first['url'] : '';
+		if ( '' === $url ) {
+			return $plain;
+		}
+
+		// Don't link an empty or whitespace-only block; that produces a bare
+		// "[]" in the output.
+		if ( '' === trim( $plain ) ) {
+			return $plain;
+		}
+
+		// Preserve leading and trailing whitespace outside the link so the
+		// surrounding prose stays correctly spaced.
+		preg_match( '#^(\s*)(.+?)(\s*)$#s', $plain, $m );
+		$lead    = isset( $m[1] ) ? $m[1] : '';
+		$middle  = isset( $m[2] ) ? $m[2] : $plain;
+		$trail   = isset( $m[3] ) ? $m[3] : '';
+
+		// Markdown link with the URL only — Claude's "title" field tends to
+		// duplicate the page <title> which is ugly inline. The URL is the
+		// load-bearing data.
+		$escaped_url = str_replace( ')', '%29', $url );
+		return $lead . '[' . $middle . '](' . $escaped_url . ')' . $trail;
+	}
+
+	/**
+	 * Standard error envelope. Matches the shape of a successful response
+	 * so callers can use the same array keys regardless of outcome.
+	 *
 	 * @param string $message
 	 * @param array  $raw
 	 * @return array
@@ -199,6 +262,7 @@ class FCE_Claude_Client {
 	private static function error_result( $message, array $raw = array() ) {
 		return array(
 			'text'         => '',
+			'cited_text'   => '',
 			'raw'          => $raw,
 			'error'        => $message,
 			'search_count' => 0,

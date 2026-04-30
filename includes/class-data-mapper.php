@@ -128,7 +128,7 @@ class FCE_Data_Mapper {
 
 		foreach ( array_keys( $narrative ) as $section ) {
 			if ( isset( $source[ $section ] ) && is_string( $source[ $section ] ) ) {
-				$narrative[ $section ] = trim( $source[ $section ] );
+				$narrative[ $section ] = self::clean_narrative( $source[ $section ] );
 			}
 		}
 
@@ -138,6 +138,24 @@ class FCE_Data_Mapper {
 			'narrative' => $narrative,
 			'dropped'   => $dropped,
 		);
+	}
+
+	/**
+	 * Defensive cleanup for narrative strings. Claude's structured citations
+	 * attach to top-level text blocks and don't reach inside JSON string
+	 * values, but the model still sometimes emits `<cite index='X-Y'>...</cite>`
+	 * tags inline inside narrative prose. We strip them so they don't end up
+	 * HTML-encoded in the rendered note. Keep the cited text content in
+	 * place, just drop the wrapping tags.
+	 *
+	 * @param string $text
+	 * @return string
+	 */
+	private static function clean_narrative( $text ) {
+		$text = (string) $text;
+		// Drop opening and closing <cite ...> tags.
+		$text = preg_replace( '#</?cite\b[^>]*>#i', '', $text );
+		return trim( $text );
 	}
 
 	// ---------------------------------------------------------------------
