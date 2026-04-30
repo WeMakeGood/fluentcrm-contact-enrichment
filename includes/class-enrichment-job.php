@@ -171,6 +171,7 @@ Return your final answer as a JSON object wrapped in <json>...</json> tags. Use 
   "native_fields": {
     "linkedin_industry": "...",
     "description": "...",
+    "website": "https://...",
     "headquarters": {
       "address_line_1": "...",
       "address_line_2": "...",
@@ -210,6 +211,7 @@ For the `native_fields` object:
 - `linkedin_industry`: must be one of these LinkedIn industry categories exactly (case-sensitive). If none of these fit confidently, omit the key or use null. Do not invent values:
   {$industry_options}
 - `description`: 1–2 sentence neutral summary of what the organization does and who they serve. No promotional language. Source-grounded — if details are unclear, keep it short rather than embellish.
+- `website`: the organization's primary public website URL. Verify it's the right organization (not a similarly-named one) before returning. Omit the key if you can't confirm or if no public website exists.
 - `headquarters`: physical headquarters address. Include only fields you can verify; omit any field you can't determine. Use null or omit the key for unknown values rather than guessing. The address goes to standard CRM address fields, not narrative.
 - `linkedin_url`, `facebook_url`, `twitter_url`: full URLs to the organization's official accounts only. Verify the account is the organization's, not a similarly-named one. Omit the key if you can't confirm.
 

@@ -207,6 +207,7 @@ In addition to the custom fields above, enrichment also populates FluentCRM's *b
 |---|---|---|---|
 | `industry` | enum (147 LinkedIn-style values) | `native_fields.linkedin_industry` | Validated against `\FluentCrm\App\Services\Helper::companyCategories()`. If Claude returns a value that isn't in the list, it's dropped (the field stays empty). |
 | `description` | text | `native_fields.description` | 1–2 sentence neutral summary. `<cite>` tags stripped defensively. |
+| `website` | URL | `native_fields.website` | The organization's primary website. Note: when website is *passed in* to enrichment as a starting hint, that value is already populated; this fills the column for company records that started with no website. Validated like other URLs. |
 | `address_line_1`, `address_line_2`, `city`, `state`, `postal_code`, `country` | text | `native_fields.headquarters` | Each sub-field is filled independently, so partial addresses (city + country only) are valid. Empty sub-fields are skipped. |
 | `linkedin_url`, `facebook_url`, `twitter_url` | URL | `native_fields.linkedin_url`, `.facebook_url`, `.twitter_url` | Validated with `filter_var(... FILTER_VALIDATE_URL)`. Invalid URLs are dropped to the diagnostics log. |
 | `employees_number` | integer | derived from the `org_employees` bucket | Bucket midpoint: 1–10 → 5, 11–50 → 30, 51–200 → 125, 201–1000 → 600, 1001–5000 → 3000, 5000+ → 7500. "Unknown" omits the field. |

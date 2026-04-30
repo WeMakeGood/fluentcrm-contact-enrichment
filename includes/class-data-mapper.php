@@ -205,8 +205,8 @@ class FCE_Data_Mapper {
 			}
 		}
 
-		// Social URLs — basic URL validation; drop if not parseable.
-		foreach ( array( 'linkedin_url', 'facebook_url', 'twitter_url' ) as $key ) {
+		// Website + social URLs — basic URL validation; drop if not parseable.
+		foreach ( array( 'website', 'linkedin_url', 'facebook_url', 'twitter_url' ) as $key ) {
 			if ( isset( $native[ $key ] ) && is_string( $native[ $key ] ) ) {
 				$url = trim( $native[ $key ] );
 				if ( '' === $url ) {
