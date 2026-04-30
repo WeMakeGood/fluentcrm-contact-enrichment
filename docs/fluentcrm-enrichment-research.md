@@ -7,7 +7,7 @@ Investigation conducted against FluentCRM (free, version detected at `wp-content
 The spec is mostly right, but a few details would have produced runtime errors if implemented literally. None of these change the architecture; they change which functions/methods the plugin calls.
 
 1. **Custom field definitions are not Eloquent records.** The verification command `FluentCrm\App\Models\CustomContactField::all()` will fatal — the class has no Eloquent base. It's a thin wrapper around the WP option `contact_custom_fields` (`fluent-crm/app/Models/CustomContactField.php`). Use `(new CustomContactField())->getGlobalFields()` or `fluentcrm_get_custom_contact_fields()` for verification, and `saveGlobalFields()` to write.
-2. **Field-type slugs are different from the spec's labels.** The spec uses "Select", "Multi-select", "Date" — the actual type strings are `single-select`, `multi-select`, `date`. Full set: `text`, `textarea`, `number`, `single-select`, `multi-select`, `radio`, `checkbox`, `date`, `date_time`.
+2. **Field-type slugs are different from the spec's labels — and the type-registry alias is different from the canonical type string.** The spec uses "Select", "Multi-select", "Date." The type registry has nine entries; the *keys* of the registry are aliases (`single-select`, `multi-select`, `text`, `textarea`, `number`, `radio`, `checkbox`, `date`, `date_time`), but for two of them the *value's* `type` field differs from the alias: `single-select` registers as `select-one`, `multi-select` registers as `select-multi`. **The bundled Vue UI in `assets/admin/js/start.js` only recognises the canonical type strings (`select-one` / `select-multi`); a stored field with `type: "single-select"` saves correctly but renders as a raw JSON dump on contact and company profiles** (no `<el-select>` branch fires). Fields must be stored with `type: "select-one"` / `"select-multi"`. For `text`, `number`, `date`, `date_time`, `radio`, `checkbox`, `textarea`, alias === canonical, so those work either way.
 3. **Company custom-field values are stored in a serialized `meta` blob, not a meta table.** The `CustomCompanyField` *definition* class shares storage shape with `CustomContactField` (a `company_custom_fields` WP option). But company *values* live inside `wp_fc_companies.meta` under the key `custom_values` — written via `FluentCrmApi('companies')->createOrUpdate(['id' => ..., 'name' => ..., 'custom_values' => [...]])`. There is **no per-field update API on the Company model** equivalent to `Subscriber::syncCustomFieldValues()`.
 4. **There is no `addCompanyProfileSection` on `extend`.** The registered API key is `extender` (the spec text uses `'extend'`). The proxy returns an `FCApi` wrapper that swallows exceptions — calls to wrong keys return `null` silently rather than warning. The signature is `addCompanyProfileSection($key, $sectionTitle, $callback, $saveCallback = null)` and the section render callback returns `['heading' => string, 'content_html' => string]`.
 5. **Notes use a single shared `fc_subscriber_notes` table for both subscribers and companies.** A `_company_note_` status flag distinguishes them. The Eloquent model is `CompanyNote`; the column `subscriber_id` actually holds the company ID for company notes. The legal `type` values come from `fluentcrm_activity_types()` — `note`, `call`, `email`, `meeting`, etc. We use `note`.
@@ -34,9 +34,13 @@ A single field definition is an associative array:
 [
   'slug'    => 'org_alignment_score',          // unique identifier; auto-generated from label if omitted
   'label'   => 'Alignment Score',              // human label
-  'type'    => 'single-select',                // one of: text, textarea, number,
-                                               // single-select, multi-select, radio,
-                                               // checkbox, date, date_time
+  'type'    => 'select-one',                   // canonical type strings:
+                                               //   text, textarea, number,
+                                               //   select-one, select-multi,
+                                               //   radio, checkbox, date, date_time
+                                               // NOT the registry aliases
+                                               //   (single-select, multi-select)
+                                               // — those stop the UI from rendering.
   'group'   => 'Enrichment — Alignment',       // optional grouping
   'options' => ['Strong', 'Moderate',          // required for select/radio/checkbox types
                 'Weak', 'Unknown'],            // flat array of strings
@@ -70,17 +74,17 @@ $model->saveGlobalFields($merged);            // overwrites the entire option
 
 | Plugin field | FluentCRM type | Notes |
 |---|---|---|
-| `enrichment_status` | `single-select` | Options: Not Enriched, Pending, Processing, Complete, Failed |
+| `enrichment_status` | `select-one` | Options: Not Enriched, Pending, Processing, Complete, Failed |
 | `enrichment_date` | `date` | `value_type: date` |
-| `enrichment_confidence` | `single-select` | High, Medium, Low |
-| `org_type` | `single-select` | Spec list |
-| `org_sector` | `single-select` | Spec list |
-| `org_employees` | `single-select` | Spec list |
-| `org_revenue` | `single-select` | Spec list |
-| `org_geo_scope` | `multi-select` | Local, Regional, National, International |
-| `org_focus_areas` | `multi-select` | Admin-configurable; loaded from `fce_focus_area_options` at field-creation time |
-| `org_partnership_models` | `multi-select` | Spec list |
-| `org_alignment_score` | `single-select` | Strong, Moderate, Weak, Unknown |
+| `enrichment_confidence` | `select-one` | High, Medium, Low |
+| `org_type` | `select-one` | Spec list |
+| `org_sector` | `select-one` | Spec list |
+| `org_employees` | `select-one` | Spec list |
+| `org_revenue` | `select-one` | Spec list |
+| `org_geo_scope` | `select-multi` | Local, Regional, National, International |
+| `org_focus_areas` | `select-multi` | Admin-configurable; loaded from `fce_focus_area_options` at field-creation time |
+| `org_partnership_models` | `select-multi` | Spec list |
+| `org_alignment_score` | `select-one` | Strong, Moderate, Weak, Unknown |
 
 > **Note on `org_focus_areas`:** because field definitions are written at plugin activation, changing the focus-area option list later requires re-saving the field. The admin "Focus Areas" tab needs to update both `fce_focus_area_options` and the field definition's `options` array on save.
 

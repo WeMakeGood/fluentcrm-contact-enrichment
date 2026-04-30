@@ -38,6 +38,62 @@ class FCE_Field_Registrar {
 
 		self::ensure_contact_fields();
 		self::ensure_company_fields();
+		self::heal_field_types();
+	}
+
+	/**
+	 * One-time migration: 0.1.0-pre versions of the plugin wrote fields with
+	 * type "single-select" / "multi-select" instead of "select-one" /
+	 * "select-multi". The aliases are accepted by the type registry but the
+	 * Vue UI only renders fields whose stored type is the canonical form,
+	 * so install records with the alias appear as a JSON dump instead of
+	 * an input. We rewrite them in place.
+	 *
+	 * @return void
+	 */
+	private static function heal_field_types() {
+		$desired_types = array();
+		foreach ( self::contact_field_definitions() as $def ) {
+			$desired_types[ $def['slug'] ] = $def['type'];
+		}
+		self::heal_in( '\\FluentCrm\\App\\Models\\CustomContactField', $desired_types );
+
+		$desired_types = array();
+		foreach ( self::company_field_definitions() as $def ) {
+			$desired_types[ $def['slug'] ] = $def['type'];
+		}
+		self::heal_in( '\\FluentCrm\\App\\Models\\CustomCompanyField', $desired_types );
+	}
+
+	/**
+	 * @param string                 $model_class
+	 * @param array<string, string>  $desired_types  slug => canonical type
+	 * @return void
+	 */
+	private static function heal_in( $model_class, array $desired_types ) {
+		$model    = new $model_class();
+		$current  = $model->getGlobalFields();
+		$existing = isset( $current['fields'] ) && is_array( $current['fields'] )
+			? $current['fields']
+			: array();
+
+		$changed = false;
+		foreach ( $existing as $i => $field ) {
+			if ( empty( $field['slug'] ) ) {
+				continue;
+			}
+			if ( ! isset( $desired_types[ $field['slug'] ] ) ) {
+				continue;
+			}
+			if ( ( $field['type'] ?? '' ) !== $desired_types[ $field['slug'] ] ) {
+				$existing[ $i ]['type'] = $desired_types[ $field['slug'] ];
+				$changed                = true;
+			}
+		}
+
+		if ( $changed ) {
+			$model->saveGlobalFields( $existing );
+		}
 	}
 
 	/**
@@ -51,7 +107,7 @@ class FCE_Field_Registrar {
 			array(
 				'slug'    => 'org_type',
 				'label'   => __( 'Organization Type', 'fluentcrm-contact-enrichment' ),
-				'type'    => 'single-select',
+				'type'    => 'select-one',
 				'group'   => FCE_GROUP_ORG_PROFILE,
 				'options' => array(
 					'Corporation', 'SMB', 'Nonprofit', 'Foundation',
@@ -61,7 +117,7 @@ class FCE_Field_Registrar {
 			array(
 				'slug'    => 'org_sector',
 				'label'   => __( 'Sector / Industry', 'fluentcrm-contact-enrichment' ),
-				'type'    => 'single-select',
+				'type'    => 'select-one',
 				'group'   => FCE_GROUP_ORG_PROFILE,
 				'options' => array(
 					'Environment / Conservation', 'Education', 'Health',
@@ -73,7 +129,7 @@ class FCE_Field_Registrar {
 			array(
 				'slug'    => 'org_employees',
 				'label'   => __( 'Employee Range', 'fluentcrm-contact-enrichment' ),
-				'type'    => 'single-select',
+				'type'    => 'select-one',
 				'group'   => FCE_GROUP_ORG_PROFILE,
 				'options' => array(
 					'1–10', '11–50', '51–200', '201–1000',
@@ -83,7 +139,7 @@ class FCE_Field_Registrar {
 			array(
 				'slug'    => 'org_revenue',
 				'label'   => __( 'Revenue Range', 'fluentcrm-contact-enrichment' ),
-				'type'    => 'single-select',
+				'type'    => 'select-one',
 				'group'   => FCE_GROUP_ORG_PROFILE,
 				'options' => array(
 					'<$1M', '$1–10M', '$10–100M', '$100M–$1B',
@@ -93,21 +149,21 @@ class FCE_Field_Registrar {
 			array(
 				'slug'    => 'org_geo_scope',
 				'label'   => __( 'Geographic Scope', 'fluentcrm-contact-enrichment' ),
-				'type'    => 'multi-select',
+				'type'    => 'select-multi',
 				'group'   => FCE_GROUP_ORG_PROFILE,
 				'options' => array( 'Local', 'Regional', 'National', 'International' ),
 			),
 			array(
 				'slug'    => 'org_focus_areas',
 				'label'   => __( 'Focus Areas', 'fluentcrm-contact-enrichment' ),
-				'type'    => 'multi-select',
+				'type'    => 'select-multi',
 				'group'   => FCE_GROUP_ORG_PROFILE,
 				'options' => self::focus_area_options(),
 			),
 			array(
 				'slug'    => 'org_partnership_models',
 				'label'   => __( 'Partnership Models', 'fluentcrm-contact-enrichment' ),
-				'type'    => 'multi-select',
+				'type'    => 'select-multi',
 				'group'   => FCE_GROUP_ORG_PROFILE,
 				'options' => array(
 					'Donation', 'Cause Marketing', 'Sponsorship',
@@ -117,7 +173,7 @@ class FCE_Field_Registrar {
 			array(
 				'slug'    => 'org_alignment_score',
 				'label'   => __( 'Alignment Score', 'fluentcrm-contact-enrichment' ),
-				'type'    => 'single-select',
+				'type'    => 'select-one',
 				'group'   => FCE_GROUP_ALIGNMENT,
 				'options' => array( 'Strong', 'Moderate', 'Weak', 'Unknown' ),
 			),
@@ -134,7 +190,7 @@ class FCE_Field_Registrar {
 			array(
 				'slug'    => FCE_FIELD_STATUS,
 				'label'   => __( 'Enrichment Status', 'fluentcrm-contact-enrichment' ),
-				'type'    => 'single-select',
+				'type'    => 'select-one',
 				'group'   => FCE_GROUP_COMPANY,
 				'options' => array(
 					'Not Enriched', 'Pending', 'Processing', 'Complete', 'Failed',
@@ -149,7 +205,7 @@ class FCE_Field_Registrar {
 			array(
 				'slug'    => FCE_FIELD_CONFIDENCE,
 				'label'   => __( 'Enrichment Confidence', 'fluentcrm-contact-enrichment' ),
-				'type'    => 'single-select',
+				'type'    => 'select-one',
 				'group'   => FCE_GROUP_COMPANY,
 				'options' => array( 'High', 'Medium', 'Low' ),
 			),
