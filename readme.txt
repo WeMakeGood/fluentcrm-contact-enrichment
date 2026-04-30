@@ -4,7 +4,7 @@ Tags: fluentcrm, crm, claude, anthropic, enrichment, research
 Requires at least: 5.8
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.1.0
+Stable tag: 0.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -82,6 +82,11 @@ The company's Enrichment Status flips to Failed and a note is added describing t
 The Enrichment Status field appears on the company record. FluentCRM does not currently expose extension points for company list columns or segment filters that would let custom company fields appear in those surfaces.
 
 == Changelog ==
+
+= 0.2.0 =
+* Enrichment now also fills FluentCRM's native company fields when they're empty: Industry (validated against FluentCRM's 147-item industry list), Description (1–2 sentence summary), Headquarters address (city, state, postal code, country, street), LinkedIn / Facebook / Twitter URLs, and Number of Employees (derived from the org_employees bucket midpoint).
+* Native fields are only written when the existing column is empty. Admin-curated values are never overwritten.
+* The success note footer lists which native fields were populated for the run.
 
 = 0.1.0 =
 * Initial release.

@@ -77,15 +77,17 @@ class FCE_Data_Mapper {
 	 *
 	 * @param array $parsed
 	 * @return array {
-	 *   contact:    array<string, string|string[]> values to push to linked contacts
-	 *   company:    array<string, string>          values to push to the company
-	 *   narrative:  array{decision_maker_context:string, recent_developments:string, alignment_assessment:string, recommended_approach:string}
-	 *   dropped:    array<int, string>             field => reason for dropped values
+	 *   contact:       array<string, string|string[]>  values to push to linked contacts
+	 *   company:       array<string, string>           custom-field values to push to the company
+	 *   native_fields: array<string, string>           native FluentCRM column values (industry, description, address, social URLs, employees_number)
+	 *   narrative:     array{decision_maker_context:string, recent_developments:string, alignment_assessment:string, recommended_approach:string}
+	 *   dropped:       array<int, string>              field => reason for dropped values
 	 * }
 	 */
 	public static function map( array $parsed ) {
-		$contact   = array();
-		$company   = array();
+		$contact       = array();
+		$company       = array();
+		$native_fields = array();
 		$narrative = array(
 			'decision_maker_context' => '',
 			'recent_developments'    => '',
@@ -132,12 +134,144 @@ class FCE_Data_Mapper {
 			}
 		}
 
-		return array(
-			'contact'   => $contact,
-			'company'   => $company,
-			'narrative' => $narrative,
-			'dropped'   => $dropped,
+		// Native FluentCRM fields. The enrichment job decides whether to
+		// actually write each one based on whether the column is empty —
+		// the mapper just shapes valid values and drops invalid ones.
+		$native_fields = self::map_native_fields(
+			isset( $parsed['native_fields'] ) && is_array( $parsed['native_fields'] )
+				? $parsed['native_fields']
+				: array(),
+			isset( $contact['org_employees'] ) ? $contact['org_employees'] : '',
+			$dropped
 		);
+
+		return array(
+			'contact'       => $contact,
+			'company'       => $company,
+			'native_fields' => $native_fields,
+			'narrative'     => $narrative,
+			'dropped'       => $dropped,
+		);
+	}
+
+	/**
+	 * Validate and shape the native_fields object from Claude's response.
+	 * Address sub-fields and social URLs pass through with sanitization;
+	 * linkedin_industry validates against the FluentCRM industry list.
+	 *
+	 * @param array              $native        Raw native_fields object from response.
+	 * @param string             $employees_bucket  e.g. "11-50" — used to derive employees_number.
+	 * @param array<int, string> &$dropped      Drop log.
+	 * @return array<string, string>
+	 */
+	private static function map_native_fields( array $native, $employees_bucket, array &$dropped ) {
+		$out = array();
+
+		// Industry — must match FluentCRM's enum exactly. Drop silently if
+		// it doesn't (the field stays empty rather than getting junk).
+		if ( isset( $native['linkedin_industry'] ) && is_string( $native['linkedin_industry'] ) ) {
+			$candidate = trim( $native['linkedin_industry'] );
+			if ( '' !== $candidate ) {
+				$allowed = self::company_industries();
+				if ( in_array( $candidate, $allowed, true ) ) {
+					$out['industry'] = $candidate;
+				} else {
+					$dropped[] = 'linkedin_industry: "' . $candidate . '" not in FluentCRM industry list';
+				}
+			}
+		}
+
+		// Description — short paragraph; we strip <cite> tags defensively
+		// in case the model put any in here too.
+		if ( isset( $native['description'] ) && is_string( $native['description'] ) ) {
+			$desc = self::clean_narrative( $native['description'] );
+			if ( '' !== $desc ) {
+				$out['description'] = $desc;
+			}
+		}
+
+		// Address — pass each sub-field through individually so partial
+		// addresses are valid (e.g. city + country with no street).
+		$addr = isset( $native['headquarters'] ) && is_array( $native['headquarters'] )
+			? $native['headquarters']
+			: array();
+		$address_keys = array( 'address_line_1', 'address_line_2', 'city', 'state', 'postal_code', 'country' );
+		foreach ( $address_keys as $key ) {
+			if ( isset( $addr[ $key ] ) && is_string( $addr[ $key ] ) ) {
+				$value = trim( $addr[ $key ] );
+				if ( '' !== $value ) {
+					$out[ $key ] = $value;
+				}
+			}
+		}
+
+		// Social URLs — basic URL validation; drop if not parseable.
+		foreach ( array( 'linkedin_url', 'facebook_url', 'twitter_url' ) as $key ) {
+			if ( isset( $native[ $key ] ) && is_string( $native[ $key ] ) ) {
+				$url = trim( $native[ $key ] );
+				if ( '' === $url ) {
+					continue;
+				}
+				if ( filter_var( $url, FILTER_VALIDATE_URL ) ) {
+					$out[ $key ] = $url;
+				} else {
+					$dropped[] = $key . ': "' . $url . '" is not a valid URL';
+				}
+			}
+		}
+
+		// Derive employees_number from the org_employees bucket. We only
+		// have a bucket from Claude; FluentCRM's column is an int. The
+		// midpoint of the bucket is a reasonable approximation that's
+		// stable across re-enrichments.
+		$mid = self::employees_bucket_midpoint( $employees_bucket );
+		if ( $mid > 0 ) {
+			$out['employees_number'] = (string) $mid;
+		}
+
+		return $out;
+	}
+
+	/**
+	 * @return array<int, string>
+	 */
+	private static function company_industries() {
+		if ( ! class_exists( '\\FluentCrm\\App\\Services\\Helper' ) ) {
+			return array();
+		}
+		$list = \FluentCrm\App\Services\Helper::companyCategories();
+		return is_array( $list ) ? $list : array();
+	}
+
+	/**
+	 * Map the org_employees bucket string to an integer midpoint. Returns
+	 * 0 (i.e. "do not write") for "Unknown" or unrecognised buckets.
+	 *
+	 * @param string $bucket
+	 * @return int
+	 */
+	private static function employees_bucket_midpoint( $bucket ) {
+		switch ( $bucket ) {
+			case '1–10':
+			case '1-10':
+				return 5;
+			case '11–50':
+			case '11-50':
+				return 30;
+			case '51–200':
+			case '51-200':
+				return 125;
+			case '201–1000':
+			case '201-1000':
+				return 600;
+			case '1001–5000':
+			case '1001-5000':
+				return 3000;
+			case '5000+':
+				return 7500;
+			default:
+				return 0;
+		}
 	}
 
 	/**

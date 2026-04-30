@@ -63,7 +63,8 @@ class FCE_Enrichment_Job {
 			$mapped = FCE_Data_Mapper::map( $parsed );
 
 			self::write_company( $company, $mapped );
-			self::create_research_note( $company, $mapped, $result['search_count'] );
+			$native_written = self::write_native_fields( $company, $mapped );
+			self::create_research_note( $company, $mapped, $result['search_count'], $native_written );
 			$contacts_updated = self::push_to_contacts( $company, $mapped );
 
 			self::log(
@@ -152,6 +153,7 @@ PROMPT;
 		$align_options   = self::format_options( $contact_defs['org_alignment_score']['options'] );
 
 		$confidence_options = '"High" | "Medium" | "Low"';
+		$industry_options   = self::linkedin_industry_options();
 
 		return <<<SCHEMA
 Return your final answer as a JSON object wrapped in <json>...</json> tags. Use exactly these keys:
@@ -166,6 +168,21 @@ Return your final answer as a JSON object wrapped in <json>...</json> tags. Use 
   "org_partnership_models": ["..."],
   "org_alignment_score": "...",
   "confidence": "...",
+  "native_fields": {
+    "linkedin_industry": "...",
+    "description": "...",
+    "headquarters": {
+      "address_line_1": "...",
+      "address_line_2": "...",
+      "city": "...",
+      "state": "...",
+      "postal_code": "...",
+      "country": "..."
+    },
+    "linkedin_url": "https://linkedin.com/company/...",
+    "facebook_url": "https://facebook.com/...",
+    "twitter_url": "https://twitter.com/..."
+  },
   "narrative": {
     "decision_maker_context": "...",
     "recent_developments": "...",
@@ -188,6 +205,16 @@ Allowed values:
 
 For array fields, return an array of values — not a comma-separated string. Only include values that match the allowed options exactly. If you cannot determine a value with reasonable confidence, use "Unknown" for the relevant single-select field, or omit unknown values from arrays.
 
+For the `native_fields` object:
+
+- `linkedin_industry`: must be one of these LinkedIn industry categories exactly (case-sensitive). If none of these fit confidently, omit the key or use null. Do not invent values:
+  {$industry_options}
+- `description`: 1–2 sentence neutral summary of what the organization does and who they serve. No promotional language. Source-grounded — if details are unclear, keep it short rather than embellish.
+- `headquarters`: physical headquarters address. Include only fields you can verify; omit any field you can't determine. Use null or omit the key for unknown values rather than guessing. The address goes to standard CRM address fields, not narrative.
+- `linkedin_url`, `facebook_url`, `twitter_url`: full URLs to the organization's official accounts only. Verify the account is the organization's, not a similarly-named one. Omit the key if you can't confirm.
+
+Native fields are written to standard FluentCRM company fields; they are independent of the org_* contact fields. We will only fill native fields that are currently empty on the company record, so it's fine to return values that may already exist.
+
 The narrative sections should be plain Markdown. Each section is one to three short paragraphs. Cite sources inline in the prose; do not include a separate references list.
 
 - decision_maker_context: Who appears to make partnership and funding decisions, and what is publicly known about their priorities, tenure, or recent moves.
@@ -197,6 +224,25 @@ The narrative sections should be plain Markdown. Each section is one to three sh
 
 When citing sources inside the narrative sections, use Markdown link syntax: `[the cited claim](https://source-url)`. Do NOT use `<cite>` tags inside the JSON string values — those tags don't render in the destination CRM note. Plain Markdown links and inline source naming ("their 2024 annual report says...") are the right format.
 SCHEMA;
+	}
+
+	/**
+	 * Returns FluentCRM's canonical industry list as a pipe-joined quoted
+	 * string for the schema instructions. Falls back to a generic message
+	 * if the helper isn't available (FluentCRM not loaded or version
+	 * mismatch).
+	 *
+	 * @return string
+	 */
+	private static function linkedin_industry_options() {
+		if ( ! class_exists( '\\FluentCrm\\App\\Services\\Helper' ) ) {
+			return '(industry list unavailable — leave linkedin_industry empty)';
+		}
+		$cats = \FluentCrm\App\Services\Helper::companyCategories();
+		if ( ! is_array( $cats ) || empty( $cats ) ) {
+			return '(industry list unavailable — leave linkedin_industry empty)';
+		}
+		return self::format_options( $cats );
 	}
 
 	/**
@@ -294,13 +340,81 @@ SCHEMA;
 	}
 
 	/**
+	 * Fill native FluentCRM company columns (industry, description, address,
+	 * social URLs, employees_number) — but only those that are currently
+	 * empty. We never overwrite admin-curated values.
+	 *
 	 * @param object $company
 	 * @param array  $mapped
-	 * @param int    $search_count
+	 * @return array<int, string>  list of column names actually written
+	 */
+	private static function write_native_fields( $company, array $mapped ) {
+		$candidates = isset( $mapped['native_fields'] ) && is_array( $mapped['native_fields'] )
+			? $mapped['native_fields']
+			: array();
+		if ( empty( $candidates ) ) {
+			return array();
+		}
+
+		// Re-fetch the company so we have the latest column values.
+		// $company in scope was hydrated at job start (status=Pending).
+		$fresh = \FluentCrm\App\Models\Company::find( (int) $company->id );
+		if ( ! $fresh ) {
+			return array();
+		}
+
+		$to_write = array();
+		foreach ( $candidates as $column => $value ) {
+			$existing = self::existing_column_value( $fresh, $column );
+			if ( '' === trim( (string) $existing ) ) {
+				$to_write[ $column ] = $value;
+			}
+		}
+
+		if ( empty( $to_write ) ) {
+			return array();
+		}
+
+		$payload = array_merge(
+			array(
+				'id'   => (int) $company->id,
+				'name' => (string) $company->name,
+			),
+			$to_write
+		);
+
+		\FluentCrmApi( 'companies' )->createOrUpdate( $payload );
+
+		return array_keys( $to_write );
+	}
+
+	/**
+	 * Read the current value of a native column on a Company model. Some
+	 * columns are top-level attributes; the rest live in the same table.
+	 *
+	 * @param object $company
+	 * @param string $column
+	 * @return string
+	 */
+	private static function existing_column_value( $company, $column ) {
+		$value = $company->{$column} ?? '';
+		// employees_number is an int column — 0 and null both mean "empty"
+		// from the admin's perspective.
+		if ( 'employees_number' === $column && (int) $value === 0 ) {
+			return '';
+		}
+		return is_scalar( $value ) ? (string) $value : '';
+	}
+
+	/**
+	 * @param object             $company
+	 * @param array              $mapped
+	 * @param int                $search_count
+	 * @param array<int, string> $native_written  list of native columns that were filled
 	 * @return void
 	 */
-	private static function create_research_note( $company, array $mapped, $search_count ) {
-		$markdown = self::format_note_markdown( $mapped, $search_count );
+	private static function create_research_note( $company, array $mapped, $search_count, array $native_written = array() ) {
+		$markdown = self::format_note_markdown( $mapped, $search_count, $native_written );
 		$html     = self::markdown_to_html( $markdown );
 
 		$data = array(
@@ -362,17 +476,22 @@ SCHEMA;
 	}
 
 	/**
-	 * @param array $mapped
-	 * @param int   $search_count
+	 * @param array              $mapped
+	 * @param int                $search_count
+	 * @param array<int, string> $native_written
 	 * @return string
 	 */
-	private static function format_note_markdown( array $mapped, $search_count ) {
+	private static function format_note_markdown( array $mapped, $search_count, array $native_written = array() ) {
 		$n = $mapped['narrative'];
 
 		$body  = "## Decision-maker context\n\n" . self::or_placeholder( $n['decision_maker_context'] ) . "\n\n";
 		$body .= "## Recent developments\n\n" . self::or_placeholder( $n['recent_developments'] ) . "\n\n";
 		$body .= "## Alignment assessment\n\n" . self::or_placeholder( $n['alignment_assessment'] ) . "\n\n";
 		$body .= "## Recommended approach\n\n" . self::or_placeholder( $n['recommended_approach'] ) . "\n";
+
+		if ( ! empty( $native_written ) ) {
+			$body .= "\n---\n\n*Native fields populated (only filled when the column was previously empty): " . implode( ', ', $native_written ) . ".*\n";
+		}
 
 		if ( ! empty( $mapped['dropped'] ) ) {
 			$body .= "\n---\n\n*Notes for the field admin: " . count( $mapped['dropped'] ) . ' value(s) returned by Claude were not in the allowed options list and were dropped: ' . implode( '; ', $mapped['dropped'] ) . ".*\n";

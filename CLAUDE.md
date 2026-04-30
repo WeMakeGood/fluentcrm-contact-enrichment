@@ -71,6 +71,17 @@ Use `web_search_20250305`. The newer `web_search_20260209` adds dynamic filterin
 
 Stored AES-256-CBC encrypted with a key derived from WP auth salts (`hash('sha256', AUTH_KEY . SECURE_AUTH_KEY . AUTH_SALT . 'fluentcrm-contact-enrichment', true)`). The stored value starts with `fce1:` so the version is identifiable for future migrations. A server compromise that reads `wp-config.php` can decrypt — that's the realistic threat model for WP plugins, and we don't claim to defend beyond it. The save path only updates the option when a non-empty value is posted, so resubmitting the form without retyping doesn't blank the stored key.
 
+### Native company fields (v0.2.0)
+
+In addition to the eleven custom fields, enrichment fills FluentCRM's built-in company columns when they're empty: `industry` (validated against `\FluentCrm\App\Services\Helper::companyCategories()` — 147-item LinkedIn-style enum), `description`, the six address columns, the three social-URL columns, and `employees_number` (derived from the `org_employees` bucket midpoint).
+
+Two non-obvious decisions:
+
+1. **Fill-if-empty, not overwrite.** `FCE_Enrichment_Job::write_native_fields()` re-fetches the company and skips any column whose existing value is non-empty. Admin-curated values are never overwritten. If the admin wants to refresh a field, they clear it first, then re-enrich.
+2. **Industry uses Claude's enum constraint, not validation-after.** The system prompt includes the full 147-item list and tells Claude to pick one or omit the key. The mapper still validates against the list as a safety net — invalid values are silently dropped.
+
+`employees_number` is derived from the bucket, not asked from Claude separately. We have a fixed bucket → midpoint table in the mapper. If FluentCRM ever supports bucket fields natively, this gets simpler.
+
 ### `org_focus_areas` field options sync
 
 The settings tab "Focus Areas" stores its option list in `fce_focus_area_options`. Saving the tab also calls `FCE_Field_Registrar::sync_focus_area_options()`, which rewrites the `options` array on the existing field definition. Existing values stored on contacts under that field are not touched — only the field's metadata. Without this sync, a focus-area edit would drift from the field definition until the plugin was reactivated.

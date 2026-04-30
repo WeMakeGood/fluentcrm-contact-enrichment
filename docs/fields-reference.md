@@ -199,6 +199,22 @@ The narrative note's "Alignment assessment" section explains the reasoning behin
 
 ---
 
+## Native FluentCRM company fields (filled if empty)
+
+In addition to the custom fields above, enrichment also populates FluentCRM's *built-in* company columns when they're currently empty. **The plugin never overwrites admin-curated values** — if any of these columns is already set on the company record, the enrichment leaves it alone, regardless of what Claude returned. The success note's footer lists which native fields were filled.
+
+| Column | Type | Source from Claude | Notes |
+|---|---|---|---|
+| `industry` | enum (147 LinkedIn-style values) | `native_fields.linkedin_industry` | Validated against `\FluentCrm\App\Services\Helper::companyCategories()`. If Claude returns a value that isn't in the list, it's dropped (the field stays empty). |
+| `description` | text | `native_fields.description` | 1–2 sentence neutral summary. `<cite>` tags stripped defensively. |
+| `address_line_1`, `address_line_2`, `city`, `state`, `postal_code`, `country` | text | `native_fields.headquarters` | Each sub-field is filled independently, so partial addresses (city + country only) are valid. Empty sub-fields are skipped. |
+| `linkedin_url`, `facebook_url`, `twitter_url` | URL | `native_fields.linkedin_url`, `.facebook_url`, `.twitter_url` | Validated with `filter_var(... FILTER_VALIDATE_URL)`. Invalid URLs are dropped to the diagnostics log. |
+| `employees_number` | integer | derived from the `org_employees` bucket | Bucket midpoint: 1–10 → 5, 11–50 → 30, 51–200 → 125, 201–1000 → 600, 1001–5000 → 3000, 5000+ → 7500. "Unknown" omits the field. |
+
+The fill-if-empty rule means: **enrichment is additive, never destructive.** If you've manually set `industry = "Education"` and Claude later determines the organization is in "Higher Education," your value stays. If you want enrichment to update a field, clear the field first, then re-enrich.
+
+The fill-if-empty check happens *after* Claude's response is parsed and validated — so you'll see "linkedin_industry" mentioned in the dropped log if Claude returned an invalid value, separate from whether the column was actually written.
+
 ## Custom field storage — quick reference
 
 For anyone debugging or writing reports against the database directly:
@@ -252,7 +268,8 @@ The company-side fields (`enrichment_status`, `enrichment_date`, `enrichment_con
 ## What enrichment does *not* do
 
 - Does not modify any FluentCRM table schema.
-- Does not write to any field outside the eleven listed above.
+- Does not write to any field outside the eleven custom fields and the native company columns listed above.
+- Does not overwrite admin-curated native company values. Industry, Description, Address, Social Links, and Number of Employees are filled only when empty.
 - Does not store the raw Claude API response anywhere — only the parsed and validated structured fields plus the narrative note.
 - Does not retain the system prompt or user prompt across runs. Each enrichment is an independent call.
 - Does not enrich contacts whose primary `company_id` doesn't match the company being enriched. Pivot-only associations are out of scope by design.
