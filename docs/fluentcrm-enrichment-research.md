@@ -2,6 +2,8 @@
 
 Investigation conducted against FluentCRM (free, version detected at `wp-content/plugins/fluent-crm/`) and the Anthropic Messages API. The purpose was to verify, before any code is written, that every internal API the spec relies on actually exists and behaves the way the spec assumes — and to surface mismatches with the spec language so the implementation can target the real APIs rather than the imagined ones.
 
+> **Looking for the data shape and how fields get filled?** That's the companion doc — see [`fields-reference.md`](fields-reference.md). This file is engineering reconnaissance; the fields-reference is operational documentation.
+
 ## TL;DR — corrections to the spec
 
 The spec is mostly right, but a few details would have produced runtime errors if implemented literally. None of these change the architecture; they change which functions/methods the plugin calls.
@@ -296,7 +298,7 @@ The text contains the JSON object we asked for. Strategy:
 
 | JSON key | Target | Notes |
 |---|---|---|
-| `org_type` | contact `org_type` | Validate against `single-select` options; fall back to `Other` |
+| `org_type` | contact `org_type` | Validate against the field's allowed options; fall back to `Other` |
 | `org_sector` | contact `org_sector` | Validate against options; fall back to `Other` |
 | `org_employees` | contact `org_employees` | Validate; fall back to `Unknown` |
 | `org_revenue` | contact `org_revenue` | Validate; fall back to `Unknown` |
@@ -310,7 +312,7 @@ The text contains the JSON object we asked for. Strategy:
 | `narrative.alignment_assessment` | company note (section 3) | Markdown |
 | `narrative.recommended_approach` | company note (section 4) | Markdown |
 
-The note body is rendered as Markdown wrapped in section headings; FluentCRM stores notes as HTML (the WP editor field). We need to either (a) convert markdown to HTML before save, or (b) save plain markdown and accept that the FluentCRM admin UI will show the raw markdown. Recommend (a) using a small markdown helper — WordPress doesn't ship with one core-side, but a tiny conversion (paragraphs, bold, italic, lists, headings) is enough for the four narrative sections.
+The note body is rendered as Markdown wrapped in section headings; FluentCRM stores notes as HTML (the WP editor field). WordPress core has no markdown helper (verified by searching `wp-includes/`), and depending on whichever plugin happens to ship Parsedown is fragile. **Decision (verified live):** bundle `erusev/parsedown` via Composer and commit `vendor/` so users don't run `composer install`. Used in safe mode in `FCE_Enrichment_Job::markdown_to_html()`. Falls back to `wpautop()` if `vendor/` is missing.
 
 ## Cross-reference — `creating-organization-dossiers` skill
 
@@ -323,13 +325,15 @@ A research-discipline skill at `app/creating-organization-dossiers/` covers the 
 
 These don't change the JSON schema; they shape the quality of the narrative four-section output and reduce hallucination risk in the structured fields. Recommend wiring them into the system prompt as a base layer that the admin's context modules then refine for organization-specific framing.
 
-## Open questions before implementation
+## Decisions made during implementation
 
-1. **Markdown → HTML conversion**: ship a tiny inline converter, depend on `markdownify`/parsedown via Composer, or save raw markdown? My recommendation: tiny inline converter (50 lines, covers headings/bold/italic/lists/paragraphs/links) — no Composer dependency, predictable behavior, easy to audit.
-2. **Multi-select value storage format**: store as comma-joined string (FluentCRM's internal default), or as array? Internal calls expect string-on-write, array-on-read. My recommendation: comma-joined string — matches what `Subscriber::store()` does for CSV imports.
-3. **Pivot-company contacts**: spec asks for `company_id = this ID`. We should write only to primary-company contacts (matches rollups plugin's documented decision). Confirm in plugin readme.
-4. **Test-connection button**: should it run a minimal `messages.create` with no tools (cheaper, only proves the API key works), or a `web_search_20250305` round-trip (proves both the key and the web-search org-level enable)? My recommendation: do the web-search round-trip — surfacing "web search not enabled" before the first real enrichment is more valuable than the small cost.
-5. **System prompt baseline**: borrow research-discipline language from the dossier skill (source attribution, gap-naming, epistemic calibration), or keep the spec's lightweight framing? My recommendation: borrow — it's free quality improvement.
+These were open questions at the start of the build; recording the resolutions here so the rationale survives.
+
+1. **Markdown → HTML conversion** — *Resolved: bundle Parsedown.* The original recommendation was a tiny inline converter to avoid a Composer dependency. After looking, WordPress core ships no markdown helper (verified by searching `wp-includes/`), and Markdown edge cases that Parsedown handles for free (nested lists, fenced code, link escaping, HTML safety) would be reinvented badly in a hand-rolled 50-line converter. Decision: depend on `erusev/parsedown` via Composer and commit `vendor/` to the repo so end users don't run `composer install`. ~80kb single file, MIT license, 10+ years stable.
+2. **Multi-select value storage format** — *Resolved: comma-joined string.* Stored on contacts as `'Education, Health, Arts & Culture'`. FluentCRM's `formatCustomFieldValues()` re-array-ifies on read for any consumer that expects an array. Matches what `Subscriber::store()` does for CSV imports.
+3. **Pivot-company contacts** — *Resolved: primary `company_id` only.* Mirrors the rollups plugin's documented decision and avoids double-writing for contacts associated with multiple companies. Documented in the readme.
+4. **Test-connection button** — *Resolved: web-search round-trip.* The Test Connection request includes the `web_search_20250305` tool definition but instructs the model not to invoke it. This verifies both that the key works AND that web search is enabled at the org level (otherwise the request would be rejected at the tool-validation stage), without paying for a billable search.
+5. **System prompt baseline** — *Resolved: borrow research discipline from the dossier skill.* The system prompt now opens with adapted language for source attribution, epistemic calibration, gap-naming, and the premature-commitment check. The admin's context modules then refine this base layer with organization-specific framing. Validated live against Make Good — Claude correctly hedges on revenue ("entirely self-reported and not independently verified") and names the scale-mismatch risk in the alignment assessment.
 
 ## Future consideration: prompt caching and Files API
 

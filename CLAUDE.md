@@ -86,7 +86,8 @@ The settings tab "Focus Areas" stores its option list in `fce_focus_area_options
 - `includes/class-admin-settings.php` — Settings → Contact Enrichment, three tabs
 - `includes/class-company-section.php` — profile section + Enrich button + ajax
 - `vendor/erusev/parsedown/` — bundled Markdown→HTML library
-- `docs/fluentcrm-enrichment-research.md` — pre-implementation reconnaissance findings
+- `docs/fluentcrm-enrichment-research.md` — pre-implementation reconnaissance findings; FluentCRM internal APIs, Anthropic API mechanics, decisions made during the build, and the prompt-caching / Files API analysis deferred for v0.1.0
+- `docs/fields-reference.md` — operational documentation for the 11 custom fields the plugin creates: pipeline diagram, per-field allowed values + meaning + fallbacks, where data is stored, how to segment
 - `readme.txt` — WordPress.org-format readme
 
 ## Coding conventions
