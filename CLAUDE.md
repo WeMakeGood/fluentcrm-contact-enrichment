@@ -71,17 +71,20 @@ Use `web_search_20250305`. The newer `web_search_20260209` adds dynamic filterin
 
 Stored AES-256-CBC encrypted with a key derived from WP auth salts (`hash('sha256', AUTH_KEY . SECURE_AUTH_KEY . AUTH_SALT . 'fluentcrm-contact-enrichment', true)`). The stored value starts with `fce1:` so the version is identifiable for future migrations. A server compromise that reads `wp-config.php` can decrypt — that's the realistic threat model for WP plugins, and we don't claim to defend beyond it. The save path only updates the option when a non-empty value is posted, so resubmitting the form without retyping doesn't blank the stored key.
 
-### Hiding the 11 enrichment fields from FluentCRM's Custom Data sidebar (v0.5.0)
+### Hiding only the three status fields from FluentCRM's company surfaces (v0.5.0 → v0.5.1)
 
-FluentCRM's company profile renders all custom fields in a generic "Custom Data" sidebar. With 11 fields under three groups, that took a lot of vertical space and felt disconnected from the Enrichment section we already render via `addCompanyProfileSection()`.
+The original v0.5.0 hid all 11 enrichment fields by filtering them out of `$data['company_custom_fields']` in the `fluent_crm/admin_vars` payload. That worked for the company profile's "Custom Data" sidebar, but the same payload powers four separate UI surfaces:
 
-`fluent_crm/admin_vars` is a public PHP filter that wraps the entire data payload going to the Vue admin. Hooking it lets us strip the plugin's slugs out of `$data['company_custom_fields']` without modifying the field definitions option. The field definitions stay intact, so:
+1. The "Custom Data" sidebar on the company profile (display)
+2. The company list-view filter chips (segmentation)
+3. The company list-view custom column dropdown (display)
+4. The field-value editor on the profile
 
-- `Subscriber::syncCustomFieldValues()` and `Companies::createOrUpdate(..., 'custom_values' => [...])` continue to read/write the same fields normally
-- Settings → Custom Fields still shows them in the management UI (it reads the option directly via REST endpoints, not through `admin_vars`)
-- Only the company profile's "Custom Data" sidebar rendering is affected
+Hiding all 11 fields from surfaces 2–4 broke company-level filtering and segmentation that admins genuinely use. v0.5.1 narrows the filter: only the three enrichment status fields (`enrichment_status`, `enrichment_date`, `enrichment_confidence`) are hidden, since those duplicate what we already render at the top of the Enrichment profile section. The 8 org_* fields are visible across all four surfaces, restoring filtering parity with the contact side.
 
-We render the same data ourselves in the Enrichment section in a more legible grouped layout. The contact-side `contact_custom_fields` is intentionally untouched — admins viewing a contact still see the 8 org_* values in the regular Custom Profile Data sidebar (no plugin-controlled section for contacts exists yet).
+The contact-side `contact_custom_fields` is intentionally untouched. The 8 org_* values appear in the contact profile's Custom Profile Data sidebar where they're filterable via FluentCRM's contact segment builder.
+
+**Lesson:** the same payload feeds multiple UI surfaces. When filtering, scope the filter to the exact subset whose duplication is the actual annoyance — not the broadest set that "looks cleaner" on the surface you started with.
 
 ### Company-side org_* cache (v0.4.0)
 

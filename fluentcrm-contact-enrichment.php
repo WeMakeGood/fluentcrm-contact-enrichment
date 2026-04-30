@@ -7,7 +7,7 @@
  * Author URI:      https://wemakegood.org
  * Text Domain:     fluentcrm-contact-enrichment
  * Domain Path:     /languages
- * Version:         0.5.0
+ * Version:         0.5.1
  * License:         GPL-2.0-or-later
  * License URI:     https://www.gnu.org/licenses/gpl-2.0.html
  * Requires Plugins: fluent-crm
@@ -17,7 +17,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-const FCE_VERSION = '0.5.0';
+const FCE_VERSION = '0.5.1';
 
 const FCE_OPT_API_KEY        = 'fce_api_key';
 const FCE_OPT_MODEL          = 'fce_model';

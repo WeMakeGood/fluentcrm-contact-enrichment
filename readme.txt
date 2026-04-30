@@ -4,7 +4,7 @@ Tags: fluentcrm, crm, claude, anthropic, enrichment, research
 Requires at least: 5.8
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.5.0
+Stable tag: 0.5.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -82,6 +82,10 @@ The company's Enrichment Status flips to Failed and a note is added describing t
 The Enrichment Status field appears on the company record. FluentCRM does not currently expose extension points for company list columns or segment filters that would let custom company fields appear in those surfaces.
 
 == Changelog ==
+
+= 0.5.1 =
+* Narrowed the v0.5.0 admin-vars filter so only the three enrichment status fields (Enrichment Status, Date Enriched, Confidence) are hidden from FluentCRM's company surfaces. The 8 org_* fields are now visible everywhere again — Custom Data sidebar, list-view filter chips, and list-view custom column dropdown — restoring company-level filtering and segmentation that v0.5.0 inadvertently removed.
+* The plugin's Enrichment section header still shows the three status fields. The 8 org_* fields are no longer duplicated in the section since FluentCRM's sidebar handles their display.
 
 = 0.5.0 =
 * The 11 enrichment fields no longer appear in FluentCRM's "Custom Data" sidebar on the company profile. They now render in the plugin's own Enrichment section instead, organized by group (Enrichment / Org Profile / Alignment) for cleaner reading.
