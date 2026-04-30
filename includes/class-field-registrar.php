@@ -40,6 +40,7 @@ class FCE_Field_Registrar {
 		self::ensure_company_fields();
 		self::heal_field_types();
 		self::sync_org_sector_options();
+		self::heal_company_org_cache();
 	}
 
 	/**
@@ -177,12 +178,16 @@ class FCE_Field_Registrar {
 	}
 
 	/**
-	 * The plugin's company field definitions.
+	 * The plugin's company field definitions. Includes the three status
+	 * fields (Enrichment Status, Date Enriched, Confidence) that exist
+	 * only on the company, plus the 8 org_* fields mirrored from the
+	 * contact side so the company has the canonical cached record of
+	 * what was last decided about it.
 	 *
 	 * @return array<int, array<string, mixed>>
 	 */
 	public static function company_field_definitions() {
-		return array(
+		$status_fields = array(
 			array(
 				'slug'    => FCE_FIELD_STATUS,
 				'label'   => __( 'Enrichment Status', 'fluentcrm-contact-enrichment' ),
@@ -206,6 +211,11 @@ class FCE_Field_Registrar {
 				'options' => array( 'High', 'Medium', 'Low' ),
 			),
 		);
+
+		// Mirror the 8 org_* fields from the contact side so the company
+		// has its own cached canonical record. Same slugs, same options,
+		// same groups — admins see matched surfaces in the Vue admin.
+		return array_merge( $status_fields, self::contact_field_definitions() );
 	}
 
 	/**
@@ -259,8 +269,9 @@ class FCE_Field_Registrar {
 
 	/**
 	 * Refresh the `org_sector` field's options list to match FluentCRM's
-	 * canonical industry list. Called from heal pass so the contact-side
-	 * field stays in sync when FluentCRM updates their list.
+	 * canonical industry list, on both contact and company definitions.
+	 * Called from heal pass so the field stays in sync if FluentCRM
+	 * updates their list.
 	 *
 	 * Also clears stored `org_sector` values on contacts that aren't in
 	 * the new list (one-time A3 cleanup for the v0.2.0 → v0.3.0 transition,
@@ -270,36 +281,184 @@ class FCE_Field_Registrar {
 	 * @return void
 	 */
 	public static function sync_org_sector_options() {
-		if ( ! class_exists( '\\FluentCrm\\App\\Models\\CustomContactField' ) ) {
-			return;
+		$desired_options = self::company_industries();
+
+		$contact_changed = self::rewrite_field_options( '\\FluentCrm\\App\\Models\\CustomContactField', 'org_sector', $desired_options );
+		$company_changed = self::rewrite_field_options( '\\FluentCrm\\App\\Models\\CustomCompanyField', 'org_sector', $desired_options );
+
+		if ( $contact_changed || $company_changed ) {
+			self::clear_invalid_org_sector_values( $desired_options );
+		}
+	}
+
+	/**
+	 * Common helper: rewrite a single field's options array if it differs
+	 * from the desired list. Returns whether a write happened.
+	 *
+	 * @param string             $model_class
+	 * @param string             $slug
+	 * @param array<int, string> $desired_options
+	 * @return bool
+	 */
+	private static function rewrite_field_options( $model_class, $slug, array $desired_options ) {
+		if ( ! class_exists( $model_class ) ) {
+			return false;
 		}
 
-		$model    = new \FluentCrm\App\Models\CustomContactField();
+		$model    = new $model_class();
 		$current  = $model->getGlobalFields();
 		$existing = isset( $current['fields'] ) && is_array( $current['fields'] )
 			? $current['fields']
 			: array();
 
-		$desired_options = self::company_industries();
-		$updated         = false;
-
 		foreach ( $existing as $i => $field ) {
-			if ( isset( $field['slug'] ) && 'org_sector' === $field['slug'] ) {
+			if ( isset( $field['slug'] ) && $slug === $field['slug'] ) {
 				$current_options = isset( $field['options'] ) && is_array( $field['options'] )
 					? $field['options']
 					: array();
 				if ( $current_options !== $desired_options ) {
 					$existing[ $i ]['options'] = $desired_options;
-					$updated                   = true;
+					$model->saveGlobalFields( $existing );
+					return true;
 				}
-				break;
+				return false;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * One-time migration introduced in v0.4.0: for each company that has
+	 * an enriched contact but no cached org_* values on the company
+	 * itself, copy the most-recently-updated contact's org_* values to
+	 * the company's meta.custom_values. Idempotent — skips any company
+	 * whose cache is already populated, so re-running is harmless.
+	 *
+	 * Why "most-recently-updated contact": a single source rule keeps
+	 * the migration deterministic. If the most recent contact happens
+	 * to have stale data, the admin can re-enrich the company to refresh
+	 * the cache.
+	 *
+	 * @return int  number of companies migrated
+	 */
+	public static function heal_company_org_cache() {
+		if ( ! class_exists( '\\FluentCrm\\App\\Models\\Company' ) ) {
+			return 0;
+		}
+
+		global $wpdb;
+		$slugs = self::org_field_slugs();
+
+		// Find every contact that has at least one org_* value, grouped
+		// by their primary company. Pick the most-recently-updated row
+		// per company as the source.
+		$placeholders = implode( ', ', array_fill( 0, count( $slugs ), '%s' ) );
+		$rows         = $wpdb->get_results( $wpdb->prepare(
+			"SELECT s.id AS subscriber_id, s.company_id, MAX(s.updated_at) AS last_updated
+			   FROM {$wpdb->prefix}fc_subscribers s
+			   INNER JOIN {$wpdb->prefix}fc_subscriber_meta m
+			     ON m.subscriber_id = s.id
+			    AND m.object_type = 'custom_field'
+			    AND m.`key` IN ( $placeholders )
+			    AND m.value <> ''
+			    AND m.value IS NOT NULL
+			  WHERE s.company_id IS NOT NULL AND s.company_id > 0
+			  GROUP BY s.company_id, s.id
+			  ORDER BY s.company_id ASC, s.updated_at DESC",
+			$slugs
+		) );
+
+		// Group by company_id, take first (most recent) per company.
+		$by_company = array();
+		foreach ( $rows as $r ) {
+			if ( ! isset( $by_company[ (int) $r->company_id ] ) ) {
+				$by_company[ (int) $r->company_id ] = (int) $r->subscriber_id;
 			}
 		}
 
-		if ( $updated ) {
-			$model->saveGlobalFields( $existing );
-			self::clear_invalid_org_sector_values( $desired_options );
+		$migrated = 0;
+		foreach ( $by_company as $company_id => $source_subscriber_id ) {
+			$company = \FluentCrm\App\Models\Company::find( $company_id );
+			if ( ! $company ) {
+				continue;
+			}
+
+			$cv = isset( $company->meta['custom_values'] ) && is_array( $company->meta['custom_values'] )
+				? $company->meta['custom_values']
+				: array();
+
+			// Idempotency: skip if any of the org_* slugs is already set.
+			$has_cache = false;
+			foreach ( $slugs as $slug ) {
+				if ( isset( $cv[ $slug ] ) && '' !== trim( (string) $cv[ $slug ] ) ) {
+					$has_cache = true;
+					break;
+				}
+			}
+			if ( $has_cache ) {
+				continue;
+			}
+
+			// Read the source contact's org_* values directly from the
+			// meta table — bypassing the model so we don't trigger
+			// FluentCRM's array-coercion path on multi-select fields.
+			$values = self::read_contact_org_values( $source_subscriber_id, $slugs );
+			if ( empty( $values ) ) {
+				continue;
+			}
+
+			\FluentCrmApi( 'companies' )->createOrUpdate( array(
+				'id'            => $company_id,
+				'name'          => (string) $company->name,
+				'custom_values' => $values,
+			) );
+			$migrated++;
 		}
+
+		return $migrated;
+	}
+
+	/**
+	 * @param int                $subscriber_id
+	 * @param array<int, string> $slugs
+	 * @return array<string, string>  slug => value
+	 */
+	private static function read_contact_org_values( $subscriber_id, array $slugs ) {
+		global $wpdb;
+		if ( empty( $slugs ) ) {
+			return array();
+		}
+		$placeholders = implode( ', ', array_fill( 0, count( $slugs ), '%s' ) );
+		$rows         = $wpdb->get_results( $wpdb->prepare(
+			"SELECT `key`, `value`
+			   FROM {$wpdb->prefix}fc_subscriber_meta
+			  WHERE subscriber_id = %d
+			    AND object_type = 'custom_field'
+			    AND `key` IN ( $placeholders )",
+			array_merge( array( $subscriber_id ), $slugs )
+		) );
+		$out = array();
+		foreach ( $rows as $r ) {
+			if ( '' !== trim( (string) $r->value ) ) {
+				$out[ $r->key ] = $r->value;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * The 8 contact-side org_* slugs that mirror onto company-side.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function org_field_slugs() {
+		$slugs = array();
+		foreach ( self::contact_field_definitions() as $def ) {
+			if ( ! empty( $def['slug'] ) ) {
+				$slugs[] = $def['slug'];
+			}
+		}
+		return $slugs;
 	}
 
 	/**
@@ -332,7 +491,8 @@ class FCE_Field_Registrar {
 
 	/**
 	 * Refresh the `org_focus_areas` field's options list to match the current
-	 * admin-configured options. Called from settings save.
+	 * admin-configured options, on both contact and company definitions.
+	 * Called from settings save.
 	 *
 	 * @return void
 	 */
@@ -341,26 +501,9 @@ class FCE_Field_Registrar {
 			return;
 		}
 
-		$model    = new \FluentCrm\App\Models\CustomContactField();
-		$current  = $model->getGlobalFields();
-		$existing = isset( $current['fields'] ) && is_array( $current['fields'] )
-			? $current['fields']
-			: array();
-
 		$options = self::focus_area_options();
-		$updated = false;
-
-		foreach ( $existing as $i => $field ) {
-			if ( isset( $field['slug'] ) && 'org_focus_areas' === $field['slug'] ) {
-				$existing[ $i ]['options'] = $options;
-				$updated                   = true;
-				break;
-			}
-		}
-
-		if ( $updated ) {
-			$model->saveGlobalFields( $existing );
-		}
+		self::rewrite_field_options( '\\FluentCrm\\App\\Models\\CustomContactField', 'org_focus_areas', $options );
+		self::rewrite_field_options( '\\FluentCrm\\App\\Models\\CustomCompanyField', 'org_focus_areas', $options );
 	}
 
 	/**

@@ -294,9 +294,13 @@ SCHEMA;
 
 	/**
 	 * Update the company's enrichment custom fields with success state +
-	 * confidence. Uses FluentCrmApi('companies')->createOrUpdate as the
-	 * canonical write path so meta serialization and the company_updated
-	 * action both fire correctly.
+	 * confidence + the 8 mirrored org_* values, in a single createOrUpdate
+	 * call so meta serialization and the company_updated action both
+	 * fire correctly.
+	 *
+	 * Caching the org_* values on the company gives us a canonical
+	 * source of truth for the organization. Sync-to-contacts operations
+	 * read from here rather than picking a "source contact" arbitrarily.
 	 *
 	 * @param object $company
 	 * @param array  $mapped
@@ -309,6 +313,14 @@ SCHEMA;
 		);
 		if ( ! empty( $mapped['company']['enrichment_confidence'] ) ) {
 			$values[ FCE_FIELD_CONFIDENCE ] = $mapped['company']['enrichment_confidence'];
+		}
+
+		// Mirror the 8 org_* values from the contact-side payload to the
+		// company. Same slugs, same string format (multi-select values
+		// are comma-joined), so reading the company gives an admin the
+		// same picture every linked contact has.
+		foreach ( $mapped['contact'] as $slug => $value ) {
+			$values[ $slug ] = $value;
 		}
 
 		\FluentCrmApi( 'companies' )->createOrUpdate(

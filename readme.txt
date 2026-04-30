@@ -4,7 +4,7 @@ Tags: fluentcrm, crm, claude, anthropic, enrichment, research
 Requires at least: 5.8
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.3.0
+Stable tag: 0.4.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -82,6 +82,12 @@ The company's Enrichment Status flips to Failed and a note is added describing t
 The Enrichment Status field appears on the company record. FluentCRM does not currently expose extension points for company list columns or segment filters that would let custom company fields appear in those surfaces.
 
 == Changelog ==
+
+= 0.4.0 =
+* The 8 org_* enrichment values (org_type, org_sector, org_employees, org_revenue, org_geo_scope, org_focus_areas, org_partnership_models, org_alignment_score) are now also cached on the company record. Previously they lived only on contacts, which made the company the wrong source of truth for organizational data. Now the company is canonical.
+* Reactivation runs a one-time heal pass: for each company that has an enriched contact but no cached org_* values, copies the most-recently-updated contact's values to the company.
+* Enrichment runs now write to both surfaces in a single pass.
+* This sets up the next release's "Sync to Contacts" buttons.
 
 = 0.3.0 =
 * Contact-side `org_sector` field now uses FluentCRM's canonical 147-item industry list (the same vocabulary FluentCRM's company-profile Industry dropdown uses). Previously used a separate 10-item list which produced inconsistent values between the two fields.

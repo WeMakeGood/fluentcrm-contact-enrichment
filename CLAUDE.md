@@ -71,6 +71,21 @@ Use `web_search_20250305`. The newer `web_search_20260209` adds dynamic filterin
 
 Stored AES-256-CBC encrypted with a key derived from WP auth salts (`hash('sha256', AUTH_KEY . SECURE_AUTH_KEY . AUTH_SALT . 'fluentcrm-contact-enrichment', true)`). The stored value starts with `fce1:` so the version is identifiable for future migrations. A server compromise that reads `wp-config.php` can decrypt — that's the realistic threat model for WP plugins, and we don't claim to defend beyond it. The save path only updates the option when a non-empty value is posted, so resubmitting the form without retyping doesn't blank the stored key.
 
+### Company-side org_* cache (v0.4.0)
+
+Through v0.3.0, the 8 org_* enrichment values lived only on contacts (via `Subscriber::syncCustomFieldValues()`). The company record had `enrichment_status`, `enrichment_date`, and `enrichment_confidence` — but the *organizational* data (type, sector, employees, etc.) was only on contacts. That made the company the wrong source of truth for organizational facts: a contact joining a company *after* enrichment had no way to inherit the company's data, and a sync-to-contacts button would have to "pick a source contact" arbitrarily.
+
+In v0.4.0, the same 8 org_* slugs are now defined on the company side too (with identical groups: "Enrichment — Org Profile" and "Enrichment — Alignment"), and `FCE_Enrichment_Job::write_company()` writes them in the same `createOrUpdate` call as the status/date/confidence fields. The company is now canonical.
+
+A one-time heal pass at activation (`heal_company_org_cache()`) walks every company that has an enriched contact but no company-side cache, picks the most-recently-updated contact as source, and writes its org_* values to the company. Idempotent — re-running skips companies whose cache is already populated.
+
+**Format wrinkle worth knowing:** multi-select values are stored differently on the two surfaces.
+
+- Company side: `org_geo_scope = ['National']` (PHP array). FluentCRM's `Companies::createOrUpdate()` calls `formatCustomFieldValues()` which array-coerces multi-select values before serialization into `meta.custom_values`.
+- Contact side: `org_geo_scope = 'National'` (comma-joined string). `Subscriber::syncCustomFieldValues()` doesn't apply that coercion.
+
+Both formats represent the same logical value, but a future sync-from-company implementation must convert arrays back to comma-joined strings before writing to contacts. The data mapper currently emits comma-joined strings; on the company write path, FluentCRM converts. On the contact write path, no conversion happens. This was an artifact of using the canonical write paths on each side rather than fighting them — fighting them would have been more code for less benefit.
+
 ### `org_sector` shares FluentCRM's industry vocabulary (v0.3.0)
 
 Originally the contact-side `org_sector` field had its own 10-item list (Education, Health, Arts & Culture, etc.). The native company `industry` field uses FluentCRM's 147-item canonical list. Same name, different vocabularies → admins saw mismatched values across contact and company records.

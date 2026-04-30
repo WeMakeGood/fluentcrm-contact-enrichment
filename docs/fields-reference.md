@@ -59,6 +59,15 @@ If anything in the pipeline fails: status flips to `"Failed"`, a clearly-titled 
 
 ## Company fields
 
+The plugin defines two sets of fields on the company side:
+
+1. **Enrichment status fields** (group: "Enrichment") — `enrichment_status`, `enrichment_date`, `enrichment_confidence`. These are unique to the company.
+2. **Cached org_* fields** (groups: "Enrichment — Org Profile" and "Enrichment — Alignment") — the same 8 fields that live on contacts, mirrored to the company so the company has the canonical record of what was last decided about it.
+
+The cached fields exist as of v0.4.0 to make the company the canonical source of truth for organizational data. Sync operations and "what does this company look like" reads should go to the company record, not to a representative contact.
+
+**Note on multi-select format:** company-side multi-select values are stored as PHP arrays (`['National', 'International']`) inside the company's serialized `meta.custom_values`. Contact-side multi-select values are stored as comma-joined strings (`"National, International"`). Same logical content, different storage format — a quirk of FluentCRM's write paths. See CLAUDE.md for the rationale.
+
 Group: **Enrichment** (visible on the FluentCRM company profile view)
 
 ### `enrichment_status`
