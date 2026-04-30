@@ -71,6 +71,17 @@ Use `web_search_20250305`. The newer `web_search_20260209` adds dynamic filterin
 
 Stored AES-256-CBC encrypted with a key derived from WP auth salts (`hash('sha256', AUTH_KEY . SECURE_AUTH_KEY . AUTH_SALT . 'fluentcrm-contact-enrichment', true)`). The stored value starts with `fce1:` so the version is identifiable for future migrations. A server compromise that reads `wp-config.php` can decrypt — that's the realistic threat model for WP plugins, and we don't claim to defend beyond it. The save path only updates the option when a non-empty value is posted, so resubmitting the form without retyping doesn't blank the stored key.
 
+### Sync buttons (v0.6.0)
+
+Two surfaces let admins push the company-side org_* cache to contacts without re-running an enrichment:
+
+- **Per-company button** on the Enrichment profile section, only rendered when `enrichment_status === 'Complete'`. Hits `wp_ajax_fce_sync_company_to_contacts`, which calls `FCE_Contact_Sync::sync_company($id)`. Useful when a contact is attached to an already-enriched company, or when contact values have drifted.
+- **Bulk button** in a Danger Zone tab on the settings page. Typed-RESYNC confirmation gate, synchronous execution, success-message reports counts of companies processed/skipped and contacts updated. Calls `FCE_Contact_Sync::bulk_resync()`, which chunks through all companies in batches of 100.
+
+`FCE_Contact_Sync::cached_org_values()` does the format conversion: company-side multi-select values stored as PHP arrays (e.g. `['National', 'International']`) are joined with `", "` before being passed to `Subscriber::syncCustomFieldValues()`. Without this conversion, FluentCRM's contact-side read path would mishandle the array.
+
+The bulk sync is synchronous on purpose — the admin clicked a button and is waiting. We bump `set_time_limit(300)` and `wp_raise_memory_limit('admin')` before starting. For installs with thousands of companies this still risks timeout; we accept that as a known limit and document it. A future chunked-cron variant could remove the limit if it becomes a problem.
+
 ### Hiding only the three status fields from FluentCRM's company surfaces (v0.5.0 → v0.5.1)
 
 The original v0.5.0 hid all 11 enrichment fields by filtering them out of `$data['company_custom_fields']` in the `fluent_crm/admin_vars` payload. That worked for the company profile's "Custom Data" sidebar, but the same payload powers four separate UI surfaces:
@@ -133,6 +144,7 @@ The settings tab "Focus Areas" stores its option list in `fce_focus_area_options
 - `includes/class-context-modules.php` — Markdown module CRUD
 - `includes/class-claude-client.php` — Anthropic Messages API HTTP client
 - `includes/class-data-mapper.php` — JSON extraction + value validation
+- `includes/class-contact-sync.php` — push company-side cached values to linked contacts (per-company + bulk paths)
 - `includes/class-enrichment-job.php` — WP-Cron handler, the full pipeline
 - `includes/class-admin-settings.php` — Settings → Contact Enrichment, three tabs
 - `includes/class-company-section.php` — profile section + Enrich button + ajax

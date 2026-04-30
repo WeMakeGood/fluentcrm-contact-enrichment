@@ -12,14 +12,16 @@ defined( 'ABSPATH' ) || exit;
 
 class FCE_Admin_Settings {
 
-	const TAB_API      = 'api';
-	const TAB_CONTEXT  = 'context';
-	const TAB_FOCUS    = 'focus';
+	const TAB_API     = 'api';
+	const TAB_CONTEXT = 'context';
+	const TAB_FOCUS   = 'focus';
+	const TAB_DANGER  = 'danger';
 
 	public static function register_hooks() {
 		add_action( 'admin_menu', array( __CLASS__, 'add_menu_page' ) );
 		add_action( 'admin_post_fce_save_settings', array( __CLASS__, 'handle_save' ) );
 		add_action( 'admin_post_fce_test_connection', array( __CLASS__, 'handle_test_connection' ) );
+		add_action( 'admin_post_fce_bulk_resync', array( __CLASS__, 'handle_bulk_resync' ) );
 	}
 
 	public static function add_menu_page() {
@@ -38,7 +40,7 @@ class FCE_Admin_Settings {
 		}
 
 		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : self::TAB_API;
-		if ( ! in_array( $tab, array( self::TAB_API, self::TAB_CONTEXT, self::TAB_FOCUS ), true ) ) {
+		if ( ! in_array( $tab, array( self::TAB_API, self::TAB_CONTEXT, self::TAB_FOCUS, self::TAB_DANGER ), true ) ) {
 			$tab = self::TAB_API;
 		}
 
@@ -52,33 +54,38 @@ class FCE_Admin_Settings {
 				<?php self::render_tab_link( self::TAB_API, __( 'API Settings', 'fluentcrm-contact-enrichment' ), $tab ); ?>
 				<?php self::render_tab_link( self::TAB_CONTEXT, __( 'Context Modules', 'fluentcrm-contact-enrichment' ), $tab ); ?>
 				<?php self::render_tab_link( self::TAB_FOCUS, __( 'Focus Areas', 'fluentcrm-contact-enrichment' ), $tab ); ?>
+				<?php self::render_tab_link( self::TAB_DANGER, __( 'Danger Zone', 'fluentcrm-contact-enrichment' ), $tab ); ?>
 			</h2>
 
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-				<input type="hidden" name="action" value="fce_save_settings" />
-				<input type="hidden" name="tab" value="<?php echo esc_attr( $tab ); ?>" />
-				<?php wp_nonce_field( FCE_NONCE_SETTINGS ); ?>
+			<?php if ( self::TAB_DANGER === $tab ) : ?>
+				<?php self::render_danger_tab(); ?>
+			<?php else : ?>
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+					<input type="hidden" name="action" value="fce_save_settings" />
+					<input type="hidden" name="tab" value="<?php echo esc_attr( $tab ); ?>" />
+					<?php wp_nonce_field( FCE_NONCE_SETTINGS ); ?>
 
-				<?php
-				switch ( $tab ) {
-					case self::TAB_API:
-						self::render_api_tab();
-						break;
-					case self::TAB_CONTEXT:
-						self::render_context_tab();
-						break;
-					case self::TAB_FOCUS:
-						self::render_focus_tab();
-						break;
-				}
-				?>
+					<?php
+					switch ( $tab ) {
+						case self::TAB_API:
+							self::render_api_tab();
+							break;
+						case self::TAB_CONTEXT:
+							self::render_context_tab();
+							break;
+						case self::TAB_FOCUS:
+							self::render_focus_tab();
+							break;
+					}
+					?>
 
-				<p class="submit">
-					<button type="submit" class="button button-primary">
-						<?php esc_html_e( 'Save Settings', 'fluentcrm-contact-enrichment' ); ?>
-					</button>
-				</p>
-			</form>
+					<p class="submit">
+						<button type="submit" class="button button-primary">
+							<?php esc_html_e( 'Save Settings', 'fluentcrm-contact-enrichment' ); ?>
+						</button>
+					</p>
+				</form>
+			<?php endif; ?>
 		</div>
 		<style>
 			.fce-modules { margin: 1em 0; }
@@ -119,6 +126,42 @@ class FCE_Admin_Settings {
 		}
 
 		wp_safe_redirect( self::tab_url( $tab, array( 'fce_msg' => 'saved' ) ) );
+		exit;
+	}
+
+	/**
+	 * Danger Zone: bulk resync of all contact org_* values from their
+	 * companies. Runs synchronously; redirects back to the Danger Zone
+	 * tab with a result notice.
+	 *
+	 * @return void
+	 */
+	public static function handle_bulk_resync() {
+		if ( ! current_user_can( FCE_CAPABILITY ) ) {
+			wp_die( esc_html__( 'Permission denied.', 'fluentcrm-contact-enrichment' ) );
+		}
+
+		check_admin_referer( FCE_NONCE_BULK_RESYNC );
+
+		$confirmation = isset( $_POST['confirmation'] ) ? trim( wp_unslash( $_POST['confirmation'] ) ) : '';
+		if ( 'RESYNC' !== $confirmation ) {
+			wp_safe_redirect( self::tab_url( self::TAB_DANGER, array( 'fce_msg' => 'resync_unconfirmed' ) ) );
+			exit;
+		}
+
+		// PHP can hit max_execution_time on installs with thousands of
+		// companies. Bump our budget to the WP-Cron default before
+		// FluentCRM's contact_custom_data_updated listeners pile up.
+		if ( function_exists( 'wp_raise_memory_limit' ) ) {
+			wp_raise_memory_limit( 'admin' );
+		}
+		@set_time_limit( 300 );
+
+		$result = FCE_Contact_Sync::bulk_resync();
+
+		set_transient( 'fce_bulk_resync_result', $result, 60 );
+
+		wp_safe_redirect( self::tab_url( self::TAB_DANGER, array( 'fce_msg' => 'resync_done' ) ) );
 		exit;
 	}
 
@@ -275,6 +318,102 @@ class FCE_Admin_Settings {
 		})();
 		</script>
 		<?php
+	}
+
+	private static function render_danger_tab() {
+		$preflight = self::bulk_resync_preflight();
+		?>
+		<div style="max-width: 720px;">
+			<h2 style="color: #b32d2e; margin-top: 1em;"><?php esc_html_e( 'Danger Zone', 'fluentcrm-contact-enrichment' ); ?></h2>
+			<p>
+				<?php esc_html_e( 'These actions affect data across the FluentCRM database in bulk. They cannot be undone. Use them when contact data has drifted from the canonical company values and you need to repair it.', 'fluentcrm-contact-enrichment' ); ?>
+			</p>
+
+			<div style="background: #fff; border: 2px solid #b32d2e; border-radius: 4px; padding: 1.5em; margin-top: 1.5em;">
+				<h3 style="margin-top: 0; color: #b32d2e;"><?php esc_html_e( 'Resync all contact org_* values from companies', 'fluentcrm-contact-enrichment' ); ?></h3>
+
+				<p>
+					<?php
+					printf(
+						/* translators: 1: companies-with-cache count, 2: total contacts */
+						esc_html__( 'For each of the %1$d companies that have cached enrichment values, this action will read those values and overwrite the matching org_* custom fields on every contact whose primary company is that company (approximately %2$d contacts total). Other contact custom fields are not affected.', 'fluentcrm-contact-enrichment' ),
+						(int) $preflight['companies_with_cache'],
+						(int) $preflight['estimated_contacts']
+					);
+					?>
+				</p>
+
+				<p>
+					<?php esc_html_e( 'Companies without cached enrichment values are skipped. Run an enrichment on those companies first if you want their contacts updated.', 'fluentcrm-contact-enrichment' ); ?>
+				</p>
+
+				<?php if ( $preflight['companies_with_cache'] > 0 ) : ?>
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top: 1.25em;">
+						<input type="hidden" name="action" value="fce_bulk_resync" />
+						<?php wp_nonce_field( FCE_NONCE_BULK_RESYNC ); ?>
+
+						<p>
+							<label for="fce_bulk_resync_confirm">
+								<strong><?php esc_html_e( 'Type RESYNC to confirm:', 'fluentcrm-contact-enrichment' ); ?></strong>
+							</label><br />
+							<input type="text" id="fce_bulk_resync_confirm" name="confirmation"
+								required pattern="RESYNC"
+								autocomplete="off"
+								placeholder="RESYNC"
+								style="border: 2px solid #b32d2e; padding: 0.5em; font-family: monospace; width: 12em;" />
+						</p>
+
+						<button type="submit" class="button" style="background: #b32d2e; color: #fff; border-color: #8b0000;">
+							<?php esc_html_e( 'Run Resync', 'fluentcrm-contact-enrichment' ); ?>
+						</button>
+					</form>
+				<?php else : ?>
+					<p><em><?php esc_html_e( 'No companies have cached enrichment values yet — run an enrichment on at least one company before using this tool.', 'fluentcrm-contact-enrichment' ); ?></em></p>
+				<?php endif; ?>
+			</div>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Cheap pre-flight count for the Danger Zone confirmation. Counts
+	 * companies with at least one cached org_type value (a proxy for
+	 * "has been enriched") and the contacts attached to those companies.
+	 *
+	 * @return array{companies_with_cache:int, estimated_contacts:int}
+	 */
+	private static function bulk_resync_preflight() {
+		$companies = 0;
+		$contacts  = 0;
+		if ( ! class_exists( '\\FluentCrm\\App\\Models\\Company' ) ) {
+			return array( 'companies_with_cache' => 0, 'estimated_contacts' => 0 );
+		}
+
+		// Pull just the meta column so we can detect cached org_type without
+		// hydrating Eloquent for the whole row.
+		global $wpdb;
+		$rows = $wpdb->get_results( "SELECT id, meta FROM {$wpdb->prefix}fc_companies WHERE meta IS NOT NULL" );
+		$ids_with_cache = array();
+		foreach ( $rows as $r ) {
+			$meta = \maybe_unserialize( $r->meta );
+			if ( is_array( $meta ) && ! empty( $meta['custom_values']['org_type'] ) ) {
+				$ids_with_cache[] = (int) $r->id;
+			}
+		}
+		$companies = count( $ids_with_cache );
+
+		if ( $companies > 0 ) {
+			$placeholders = implode( ',', array_fill( 0, $companies, '%d' ) );
+			$contacts     = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT COUNT(*) FROM {$wpdb->prefix}fc_subscribers WHERE company_id IN ($placeholders)",
+				$ids_with_cache
+			) );
+		}
+
+		return array(
+			'companies_with_cache' => $companies,
+			'estimated_contacts'   => $contacts,
+		);
 	}
 
 	private static function render_focus_tab() {
@@ -522,6 +661,25 @@ class FCE_Admin_Settings {
 						$error ? $error : __( 'unknown error', 'fluentcrm-contact-enrichment' )
 					)
 				) . '</p></div>';
+				break;
+			case 'resync_unconfirmed':
+				echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__( 'Resync not run: the confirmation must be exactly RESYNC (uppercase, no extra spaces).', 'fluentcrm-contact-enrichment' ) . '</p></div>';
+				break;
+			case 'resync_done':
+				$result = get_transient( 'fce_bulk_resync_result' );
+				delete_transient( 'fce_bulk_resync_result' );
+				if ( is_array( $result ) ) {
+					$message = sprintf(
+						/* translators: 1: companies processed, 2: contacts updated, 3: companies skipped */
+						esc_html__( 'Resync complete. %1$d companies processed, %2$d contacts updated, %3$d companies skipped (no cached enrichment values).', 'fluentcrm-contact-enrichment' ),
+						(int) $result['companies_processed'],
+						(int) $result['contacts_updated'],
+						(int) $result['companies_skipped']
+					);
+				} else {
+					$message = esc_html__( 'Resync complete.', 'fluentcrm-contact-enrichment' );
+				}
+				echo '<div class="notice notice-success is-dismissible"><p>' . $message . '</p></div>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 				break;
 		}
 	}

@@ -4,7 +4,7 @@ Tags: fluentcrm, crm, claude, anthropic, enrichment, research
 Requires at least: 5.8
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.5.1
+Stable tag: 0.6.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -82,6 +82,13 @@ The company's Enrichment Status flips to Failed and a note is added describing t
 The Enrichment Status field appears on the company record. FluentCRM does not currently expose extension points for company list columns or segment filters that would let custom company fields appear in those surfaces.
 
 == Changelog ==
+
+= 0.6.0 =
+* Adds two sync surfaces backed by the company-side org_* cache introduced in v0.4.0:
+  * **Per-company "Sync to Contacts"** button on the company profile section. Reads the company's cached enrichment values and pushes them to every primary-linked contact's custom fields. No API call, no cron — fast and free. Use it when a contact is added to an already-enriched company, or when contact values have drifted from the company.
+  * **Bulk "Resync all contacts" Danger Zone tab** in Settings → Contact Enrichment. Walks every company that has cached enrichment values and resyncs all their primary contacts at once. Typed-confirmation (RESYNC) gate, synchronous execution, summary count of companies processed and skipped on completion.
+* Both surfaces convert FluentCRM's internal multi-select array format (used on the company side) back to comma-joined strings before writing to contacts, so the contact-side format stays consistent.
+* Companies without cached enrichment values are skipped in the bulk run and noted in the success message.
 
 = 0.5.1 =
 * Narrowed the v0.5.0 admin-vars filter so only the three enrichment status fields (Enrichment Status, Date Enriched, Confidence) are hidden from FluentCRM's company surfaces. The 8 org_* fields are now visible everywhere again — Custom Data sidebar, list-view filter chips, and list-view custom column dropdown — restoring company-level filtering and segmentation that v0.5.0 inadvertently removed.

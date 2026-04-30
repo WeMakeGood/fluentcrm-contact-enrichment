@@ -13,6 +13,7 @@ class FCE_Company_Section {
 	public static function register_hooks() {
 		add_action( 'init', array( __CLASS__, 'register_section' ) );
 		add_action( 'wp_ajax_' . FCE_AJAX_TRIGGER, array( __CLASS__, 'ajax_trigger' ) );
+		add_action( 'wp_ajax_' . FCE_AJAX_SYNC, array( __CLASS__, 'ajax_sync' ) );
 		add_action( 'admin_footer', array( __CLASS__, 'enqueue_click_handler' ) );
 		add_filter( 'fluent_crm/admin_vars', array( __CLASS__, 'hide_plugin_fields_from_sidebar' ), 99 );
 	}
@@ -160,6 +161,18 @@ class FCE_Company_Section {
 				?>
 			</button>
 
+			<?php if ( 'Complete' === $status ) : ?>
+				<button type="button"
+					id="fce-sync-button"
+					data-company-id="<?php echo (int) $company->id; ?>"
+					data-ajax-url="<?php echo $ajax_url; ?>"
+					data-nonce="<?php echo esc_attr( wp_create_nonce( FCE_NONCE_SYNC ) ); ?>"
+					class="el-button el-button--default"
+					style="margin-left: 0.5em;">
+					<?php esc_html_e( 'Sync to Contacts', 'fluentcrm-contact-enrichment' ); ?>
+				</button>
+			<?php endif; ?>
+
 			<?php if ( $last_note ) : ?>
 				<p style="margin-top: 1em;">
 					<small>
@@ -232,12 +245,7 @@ class FCE_Company_Section {
 			if (window.__fceEnrichBound) { return; }
 			window.__fceEnrichBound = true;
 
-			document.addEventListener('click', function (e) {
-				var btn = e.target.closest && e.target.closest('#fce-enrich-button');
-				if (!btn) { return; }
-				e.preventDefault();
-				if (btn.disabled) { return; }
-
+			function postFormAjax(btn, action, runningText, successText, errorPrefix) {
 				var ajaxUrl = btn.getAttribute('data-ajax-url');
 				var nonce = btn.getAttribute('data-nonce');
 				var companyId = btn.getAttribute('data-company-id');
@@ -245,14 +253,14 @@ class FCE_Company_Section {
 
 				btn.disabled = true;
 				var originalText = btn.textContent;
-				btn.textContent = '<?php echo esc_js( __( 'Queueing…', 'fluentcrm-contact-enrichment' ) ); ?>';
+				btn.textContent = runningText;
 
 				var formData = new FormData();
-				formData.append('action', '<?php echo esc_js( FCE_AJAX_TRIGGER ); ?>');
+				formData.append('action', action);
 				formData.append('company_id', companyId);
 				formData.append('_wpnonce', nonce);
 
-				fetch(ajaxUrl, {
+				return fetch(ajaxUrl, {
 					method: 'POST',
 					credentials: 'same-origin',
 					body: formData
@@ -260,25 +268,111 @@ class FCE_Company_Section {
 				.then(function (r) { return r.json(); })
 				.then(function (data) {
 					if (data && data.success) {
-						btn.textContent = '<?php echo esc_js( __( 'Queued — refresh to see status', 'fluentcrm-contact-enrichment' ) ); ?>';
-						var statusEl = document.getElementById('fce-status-value');
-						if (statusEl) { statusEl.textContent = 'Pending'; }
-					} else {
-						btn.disabled = false;
-						btn.textContent = originalText;
-						alert('<?php echo esc_js( __( 'Could not queue enrichment:', 'fluentcrm-contact-enrichment' ) ); ?> ' +
-							((data && data.data && data.data.message) || 'unknown error'));
+						btn.textContent = successText(data) || originalText;
+						return data;
 					}
+					btn.disabled = false;
+					btn.textContent = originalText;
+					alert(errorPrefix + ' ' +
+						((data && data.data && data.data.message) || 'unknown error'));
 				})
 				.catch(function () {
 					btn.disabled = false;
 					btn.textContent = originalText;
-					alert('<?php echo esc_js( __( 'Network error queueing enrichment.', 'fluentcrm-contact-enrichment' ) ); ?>');
+					alert('<?php echo esc_js( __( 'Network error.', 'fluentcrm-contact-enrichment' ) ); ?>');
 				});
+			}
+
+			document.addEventListener('click', function (e) {
+				var enrichBtn = e.target.closest && e.target.closest('#fce-enrich-button');
+				if (enrichBtn) {
+					e.preventDefault();
+					if (enrichBtn.disabled) { return; }
+					postFormAjax(
+						enrichBtn,
+						'<?php echo esc_js( FCE_AJAX_TRIGGER ); ?>',
+						'<?php echo esc_js( __( 'Queueing…', 'fluentcrm-contact-enrichment' ) ); ?>',
+						function () {
+							var statusEl = document.getElementById('fce-status-value');
+							if (statusEl) { statusEl.textContent = 'Pending'; }
+							return '<?php echo esc_js( __( 'Queued — refresh to see status', 'fluentcrm-contact-enrichment' ) ); ?>';
+						},
+						'<?php echo esc_js( __( 'Could not queue enrichment:', 'fluentcrm-contact-enrichment' ) ); ?>'
+					);
+					return;
+				}
+
+				var syncBtn = e.target.closest && e.target.closest('#fce-sync-button');
+				if (syncBtn) {
+					e.preventDefault();
+					if (syncBtn.disabled) { return; }
+					postFormAjax(
+						syncBtn,
+						'<?php echo esc_js( FCE_AJAX_SYNC ); ?>',
+						'<?php echo esc_js( __( 'Syncing…', 'fluentcrm-contact-enrichment' ) ); ?>',
+						function (data) {
+							var n = (data && data.data && data.data.contacts_updated) || 0;
+							return n + ' <?php echo esc_js( __( 'contact(s) synced', 'fluentcrm-contact-enrichment' ) ); ?>';
+						},
+						'<?php echo esc_js( __( 'Could not sync to contacts:', 'fluentcrm-contact-enrichment' ) ); ?>'
+					);
+					return;
+				}
 			});
 		})();
 		</script>
 		<?php
+	}
+
+	/**
+	 * Admin-AJAX handler for the per-company "Sync to Contacts" button.
+	 * Reads the company's cached org_* values and pushes them to every
+	 * primary-linked contact via FCE_Contact_Sync. No API call, no cron;
+	 * synchronous and fast (one query plus N syncCustomFieldValues calls,
+	 * where N is the contact count for this company).
+	 *
+	 * @return void  always exits via wp_send_json_*
+	 */
+	public static function ajax_sync() {
+		if ( ! current_user_can( FCE_CAPABILITY ) ) {
+			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'fluentcrm-contact-enrichment' ) ), 403 );
+		}
+
+		check_ajax_referer( FCE_NONCE_SYNC );
+
+		$company_id = isset( $_POST['company_id'] ) ? (int) $_POST['company_id'] : 0;
+		if ( $company_id <= 0 ) {
+			wp_send_json_error( array( 'message' => __( 'Missing company id.', 'fluentcrm-contact-enrichment' ) ), 400 );
+		}
+
+		$result = FCE_Contact_Sync::sync_company( $company_id );
+
+		if ( null !== $result['error'] ) {
+			$messages = array(
+				'no_cached_values'      => __( 'This company has no cached enrichment values. Run an enrichment first.', 'fluentcrm-contact-enrichment' ),
+				'company_not_found'     => __( 'Company not found.', 'fluentcrm-contact-enrichment' ),
+				'fluentcrm_not_loaded'  => __( 'FluentCRM is not loaded.', 'fluentcrm-contact-enrichment' ),
+				'invalid_company_id'    => __( 'Invalid company id.', 'fluentcrm-contact-enrichment' ),
+			);
+			$msg = isset( $messages[ $result['error'] ] ) ? $messages[ $result['error'] ] : $result['error'];
+			wp_send_json_error( array( 'message' => $msg ), 400 );
+		}
+
+		wp_send_json_success( array(
+			'message'           => sprintf(
+				/* translators: 1: contact count, 2: field count */
+				_n(
+					'Synced %1$d contact (%2$d fields).',
+					'Synced %1$d contacts (%2$d fields each).',
+					$result['contacts_updated'],
+					'fluentcrm-contact-enrichment'
+				),
+				$result['contacts_updated'],
+				$result['fields_per_contact']
+			),
+			'contacts_updated'  => $result['contacts_updated'],
+			'fields_per_contact' => $result['fields_per_contact'],
+		) );
 	}
 
 	/**
