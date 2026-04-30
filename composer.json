@@ -1,0 +1,21 @@
+{
+  "name": "wemakegood/fluentcrm-contact-enrichment",
+  "description": "Enriches FluentCRM company records using the Claude API.",
+  "type": "wordpress-plugin",
+  "license": "GPL-2.0-or-later",
+  "require": {
+    "php": ">=7.4",
+    "erusev/parsedown": "^1.7"
+  },
+  "require-dev": {
+    "wp-cli/i18n-command": "^2"
+  },
+  "scripts": {
+    "makepot": "wp i18n make-pot ."
+  },
+  "config": {
+    "vendor-dir": "vendor",
+    "optimize-autoloader": true,
+    "preferred-install": "dist"
+  }
+}
