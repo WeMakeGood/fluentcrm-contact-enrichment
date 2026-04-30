@@ -13,6 +13,7 @@ class FCE_Company_Section {
 	public static function register_hooks() {
 		add_action( 'init', array( __CLASS__, 'register_section' ) );
 		add_action( 'wp_ajax_' . FCE_AJAX_TRIGGER, array( __CLASS__, 'ajax_trigger' ) );
+		add_action( 'admin_footer', array( __CLASS__, 'enqueue_click_handler' ) );
 	}
 
 	/**
@@ -127,25 +128,72 @@ class FCE_Company_Section {
 			</p>
 		</div>
 
+		<?php
+		// Note: any inline <script> here would be silently dropped because
+		// FluentCRM's Vue admin renders this HTML through `innerHTML`,
+		// which does not execute embedded scripts. The click handler is
+		// enqueued separately via admin_footer (enqueue_click_handler())
+		// and uses event delegation against the body so it works no
+		// matter when the Vue tree mounts the button.
+		$html = ob_get_clean();
+
+		return array(
+			'heading'      => __( 'Enrichment', 'fluentcrm-contact-enrichment' ),
+			'content_html' => $html,
+		);
+	}
+
+	/**
+	 * Print the click handler in the admin footer. The handler uses event
+	 * delegation against `document` so it works whether the Vue admin
+	 * mounts the button before or after this script loads. Reads
+	 * company_id, nonce, and ajax URL from the button's data attributes
+	 * (set in render_section()), so we don't need to inline any
+	 * page-state into the script itself.
+	 *
+	 * @return void
+	 */
+	public static function enqueue_click_handler() {
+		// Only emit on FluentCRM admin pages — keeps this off every other
+		// admin screen.
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen ) {
+			return;
+		}
+		// Top-level FluentCRM page id is "toplevel_page_fluentcrm-admin";
+		// any sub-page registered under it is "*_page_fluentcrm-admin..." too.
+		// Match the "fluentcrm-admin" suffix to catch all of them.
+		if ( false === strpos( (string) $screen->id, 'fluentcrm-admin' ) ) {
+			return;
+		}
+
+		?>
 		<script>
 		(function () {
-			var btn = document.getElementById('fce-enrich-button');
-			if (!btn || btn.dataset.fceBound === '1') { return; }
-			btn.dataset.fceBound = '1';
+			if (window.__fceEnrichBound) { return; }
+			window.__fceEnrichBound = true;
 
-			btn.addEventListener('click', function (e) {
+			document.addEventListener('click', function (e) {
+				var btn = e.target.closest && e.target.closest('#fce-enrich-button');
+				if (!btn) { return; }
 				e.preventDefault();
 				if (btn.disabled) { return; }
+
+				var ajaxUrl = btn.getAttribute('data-ajax-url');
+				var nonce = btn.getAttribute('data-nonce');
+				var companyId = btn.getAttribute('data-company-id');
+				if (!ajaxUrl || !nonce || !companyId) { return; }
+
 				btn.disabled = true;
 				var originalText = btn.textContent;
 				btn.textContent = '<?php echo esc_js( __( 'Queueing…', 'fluentcrm-contact-enrichment' ) ); ?>';
 
 				var formData = new FormData();
 				formData.append('action', '<?php echo esc_js( FCE_AJAX_TRIGGER ); ?>');
-				formData.append('company_id', btn.dataset.companyId);
-				formData.append('_wpnonce', btn.dataset.nonce);
+				formData.append('company_id', companyId);
+				formData.append('_wpnonce', nonce);
 
-				fetch(btn.dataset.ajaxUrl, {
+				fetch(ajaxUrl, {
 					method: 'POST',
 					credentials: 'same-origin',
 					body: formData
@@ -163,7 +211,7 @@ class FCE_Company_Section {
 							((data && data.data && data.data.message) || 'unknown error'));
 					}
 				})
-				.catch(function (err) {
+				.catch(function () {
 					btn.disabled = false;
 					btn.textContent = originalText;
 					alert('<?php echo esc_js( __( 'Network error queueing enrichment.', 'fluentcrm-contact-enrichment' ) ); ?>');
@@ -172,12 +220,6 @@ class FCE_Company_Section {
 		})();
 		</script>
 		<?php
-		$html = ob_get_clean();
-
-		return array(
-			'heading'      => __( 'Enrichment', 'fluentcrm-contact-enrichment' ),
-			'content_html' => $html,
-		);
 	}
 
 	/**
