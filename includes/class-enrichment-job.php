@@ -144,7 +144,6 @@ PROMPT;
 		}
 
 		$type_options    = self::format_options( $contact_defs['org_type']['options'] );
-		$sector_options  = self::format_options( $contact_defs['org_sector']['options'] );
 		$emp_options     = self::format_options( $contact_defs['org_employees']['options'] );
 		$rev_options     = self::format_options( $contact_defs['org_revenue']['options'] );
 		$geo_options     = self::format_options( $contact_defs['org_geo_scope']['options'] );
@@ -160,7 +159,6 @@ Return your final answer as a JSON object wrapped in <json>...</json> tags. Use 
 
 {
   "org_type": "...",
-  "org_sector": "...",
   "org_employees": "...",
   "org_revenue": "...",
   "org_geo_scope": ["..."],
@@ -195,7 +193,6 @@ Return your final answer as a JSON object wrapped in <json>...</json> tags. Use 
 Allowed values:
 
 - org_type: {$type_options}
-- org_sector: {$sector_options}
 - org_employees: {$emp_options}
 - org_revenue: {$rev_options}
 - org_geo_scope (array): {$geo_options}
@@ -216,6 +213,8 @@ For the `native_fields` object:
 - `linkedin_url`, `facebook_url`, `twitter_url`: full URLs to the organization's official accounts only. Verify the account is the organization's, not a similarly-named one. Omit the key if you can't confirm.
 
 Native fields are written to standard FluentCRM company fields; they are independent of the org_* contact fields. We will only fill native fields that are currently empty on the company record, so it's fine to return values that may already exist.
+
+Note: the contact-side `org_sector` field is derived automatically from your `linkedin_industry` value — they share FluentCRM's industry vocabulary. You don't need to return `org_sector` separately.
 
 The narrative sections should be plain Markdown. Each section is one to three short paragraphs. Cite sources inline in the prose; do not include a separate references list.
 

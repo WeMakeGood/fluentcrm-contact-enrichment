@@ -71,6 +71,16 @@ Use `web_search_20250305`. The newer `web_search_20260209` adds dynamic filterin
 
 Stored AES-256-CBC encrypted with a key derived from WP auth salts (`hash('sha256', AUTH_KEY . SECURE_AUTH_KEY . AUTH_SALT . 'fluentcrm-contact-enrichment', true)`). The stored value starts with `fce1:` so the version is identifiable for future migrations. A server compromise that reads `wp-config.php` can decrypt — that's the realistic threat model for WP plugins, and we don't claim to defend beyond it. The save path only updates the option when a non-empty value is posted, so resubmitting the form without retyping doesn't blank the stored key.
 
+### `org_sector` shares FluentCRM's industry vocabulary (v0.3.0)
+
+Originally the contact-side `org_sector` field had its own 10-item list (Education, Health, Arts & Culture, etc.). The native company `industry` field uses FluentCRM's 147-item canonical list. Same name, different vocabularies → admins saw mismatched values across contact and company records.
+
+In v0.3.0, `org_sector`'s option list switched to `\FluentCrm\App\Services\Helper::companyCategories()` (same source as native industry), and the value is **derived** from `native_fields.linkedin_industry` in the data mapper rather than asked of Claude separately. One source of truth, guaranteed consistency.
+
+The heal pass also runs `clear_invalid_org_sector_values()` once: any stored value that's not in the new list is deleted from `wp_fc_subscriber_meta` so it doesn't render as invalid in the FluentCRM UI. Re-enrichment refills. No remapping table — the old vocabulary's categories ("Environment / Conservation", "Arts & Culture") don't have clean targets in the new list, so a remap would be opinionated.
+
+The `org_sector` field continues to live on contacts (not just companies) because FluentCRM segment builders only see contact custom fields. See `~/.claude/projects/.../memory/fluentcrm-contact-side-fields.md`.
+
 ### Native company fields (v0.2.0)
 
 In addition to the eleven custom fields, enrichment fills FluentCRM's built-in company columns when they're empty: `industry` (validated against `\FluentCrm\App\Services\Helper::companyCategories()` — 147-item LinkedIn-style enum), `description`, the six address columns, the three social-URL columns, and `employees_number` (derived from the `org_employees` bucket midpoint).

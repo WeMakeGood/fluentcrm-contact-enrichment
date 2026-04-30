@@ -12,12 +12,15 @@ defined( 'ABSPATH' ) || exit;
 class FCE_Data_Mapper {
 
 	/**
-	 * Single-select fields and their fallback when the response is missing or
-	 * not in the allowed list.
+	 * Single-select fields Claude returns directly, with their fallback
+	 * when the response is missing or not in the allowed list.
+	 *
+	 * `org_sector` is intentionally absent — it's derived from
+	 * `native_fields.linkedin_industry` in map_native_fields() so the
+	 * contact-side and company-side industry data share one vocabulary.
 	 */
 	const SINGLE_SELECT_FALLBACKS = array(
 		'org_type'            => 'Other',
-		'org_sector'          => 'Other',
 		'org_employees'       => 'Unknown',
 		'org_revenue'         => 'Unknown',
 		'org_alignment_score' => 'Unknown',
@@ -144,6 +147,15 @@ class FCE_Data_Mapper {
 			isset( $contact['org_employees'] ) ? $contact['org_employees'] : '',
 			$dropped
 		);
+
+		// org_sector is the contact-side mirror of native industry. It exists
+		// on contacts (not companies) because FluentCRM segment builders only
+		// see contact custom fields. Same vocabulary in both places means a
+		// segment on "contacts at organizations in Higher Education" matches
+		// what the company profile shows.
+		if ( ! empty( $native_fields['industry'] ) ) {
+			$contact['org_sector'] = $native_fields['industry'];
+		}
 
 		return array(
 			'contact'       => $contact,

@@ -126,10 +126,15 @@ The kind of organization. "SMB" covers small/medium for-profit businesses (under
 | | |
 |---|---|
 | Type | `select-one` |
-| Allowed values | Environment / Conservation, Education, Health, Arts & Culture, Technology, Finance, Retail / Consumer, Real Estate, Professional Services, Other |
-| Fallback | "Other" |
+| Allowed values | FluentCRM's canonical 147-item industry list (sourced live from `\FluentCrm\App\Services\Helper::companyCategories()`) |
+| Fallback | empty (no value written if Claude can't pick from the list) |
+| Source | **Derived** from the native `industry` value populated via `native_fields.linkedin_industry` — same vocabulary, guaranteed consistent |
 
-Industry vertical. The list is intentionally short — these are the segments most useful for funder/partner/recipient categorization, not a comprehensive industry taxonomy.
+Industry vertical, sharing FluentCRM's company-profile industry vocabulary. Lives on the contact (rather than only on the company) because FluentCRM's segment builder only sees contact custom fields — duplicating to contacts makes the value segmentable in dynamic segments and automation conditions.
+
+The 147 categories are LinkedIn-style and granular ("Higher Education" vs "Education Management" vs "E-Learning"). For broader-brush segmentation, segment on multiple values together (e.g. `org_sector IN ("Higher Education", "Education Management", "E-Learning", "Professional Training & Coaching")`).
+
+When the field's option list changes (a future FluentCRM update could expand the list), the heal pass on plugin reactivation rewrites the field definition to match. Stored values that fall out of the new list are cleared so they don't display as invalid in the FluentCRM UI; re-enrichment refills them.
 
 ### `org_employees`
 

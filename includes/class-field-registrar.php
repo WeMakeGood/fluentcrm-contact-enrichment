@@ -39,6 +39,7 @@ class FCE_Field_Registrar {
 		self::ensure_contact_fields();
 		self::ensure_company_fields();
 		self::heal_field_types();
+		self::sync_org_sector_options();
 	}
 
 	/**
@@ -119,12 +120,7 @@ class FCE_Field_Registrar {
 				'label'   => __( 'Sector / Industry', 'fluentcrm-contact-enrichment' ),
 				'type'    => 'select-one',
 				'group'   => FCE_GROUP_ORG_PROFILE,
-				'options' => array(
-					'Environment / Conservation', 'Education', 'Health',
-					'Arts & Culture', 'Technology', 'Finance',
-					'Retail / Consumer', 'Real Estate',
-					'Professional Services', 'Other',
-				),
+				'options' => self::company_industries(),
 			),
 			array(
 				'slug'    => 'org_employees',
@@ -227,6 +223,27 @@ class FCE_Field_Registrar {
 	}
 
 	/**
+	 * FluentCRM's canonical industry list (the same enum that powers the
+	 * Industry dropdown on the company profile). Used as the option list
+	 * for the contact-side `org_sector` field so segmentation on contacts
+	 * uses the same vocabulary as company-level data.
+	 *
+	 * Falls back to a single "Unknown" entry when FluentCRM hasn't loaded
+	 * yet (e.g. during plugin activation before FluentCRM's bootstrap
+	 * runs). The heal pass on `fluent_crm/after_init_app` rewrites the
+	 * options later in the same request.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function company_industries() {
+		if ( ! class_exists( '\\FluentCrm\\App\\Services\\Helper' ) ) {
+			return array( 'Unknown' );
+		}
+		$list = \FluentCrm\App\Services\Helper::companyCategories();
+		return is_array( $list ) && ! empty( $list ) ? $list : array( 'Unknown' );
+	}
+
+	/**
 	 * Default focus-area list used until the admin configures their own.
 	 *
 	 * @return array<int, string>
@@ -238,6 +255,79 @@ class FCE_Field_Registrar {
 			'Economic Development', 'Arts & Culture', 'Animal Welfare',
 			'Human Rights', 'Disaster Relief',
 		);
+	}
+
+	/**
+	 * Refresh the `org_sector` field's options list to match FluentCRM's
+	 * canonical industry list. Called from heal pass so the contact-side
+	 * field stays in sync when FluentCRM updates their list.
+	 *
+	 * Also clears stored `org_sector` values on contacts that aren't in
+	 * the new list (one-time A3 cleanup for the v0.2.0 → v0.3.0 transition,
+	 * but harmless if run repeatedly — only operates on values currently
+	 * out of range).
+	 *
+	 * @return void
+	 */
+	public static function sync_org_sector_options() {
+		if ( ! class_exists( '\\FluentCrm\\App\\Models\\CustomContactField' ) ) {
+			return;
+		}
+
+		$model    = new \FluentCrm\App\Models\CustomContactField();
+		$current  = $model->getGlobalFields();
+		$existing = isset( $current['fields'] ) && is_array( $current['fields'] )
+			? $current['fields']
+			: array();
+
+		$desired_options = self::company_industries();
+		$updated         = false;
+
+		foreach ( $existing as $i => $field ) {
+			if ( isset( $field['slug'] ) && 'org_sector' === $field['slug'] ) {
+				$current_options = isset( $field['options'] ) && is_array( $field['options'] )
+					? $field['options']
+					: array();
+				if ( $current_options !== $desired_options ) {
+					$existing[ $i ]['options'] = $desired_options;
+					$updated                   = true;
+				}
+				break;
+			}
+		}
+
+		if ( $updated ) {
+			$model->saveGlobalFields( $existing );
+			self::clear_invalid_org_sector_values( $desired_options );
+		}
+	}
+
+	/**
+	 * Delete stored `org_sector` values on contacts that aren't in the
+	 * current allowed list. Re-enrichment will refill them. We don't try
+	 * to remap; "Education" doesn't have a clean target in the FluentCRM
+	 * list (could be Higher Education, Education Management, E-Learning,
+	 * Primary/Secondary Education, or Professional Training & Coaching),
+	 * and a hardcoded mapping ages badly.
+	 *
+	 * @param array<int, string> $allowed
+	 * @return int  rows deleted
+	 */
+	private static function clear_invalid_org_sector_values( array $allowed ) {
+		global $wpdb;
+		if ( empty( $allowed ) ) {
+			return 0;
+		}
+
+		$placeholders = implode( ', ', array_fill( 0, count( $allowed ), '%s' ) );
+		$query        = $wpdb->prepare(
+			"DELETE FROM {$wpdb->prefix}fc_subscriber_meta
+			 WHERE object_type = 'custom_field'
+			   AND `key` = 'org_sector'
+			   AND `value` NOT IN ( $placeholders )",
+			$allowed
+		);
+		return (int) $wpdb->query( $query );
 	}
 
 	/**
