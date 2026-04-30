@@ -4,7 +4,7 @@ Tags: fluentcrm, crm, claude, anthropic, enrichment, research
 Requires at least: 5.8
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.6.0
+Stable tag: 0.6.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -82,6 +82,9 @@ The company's Enrichment Status flips to Failed and a note is added describing t
 The Enrichment Status field appears on the company record. FluentCRM does not currently expose extension points for company list columns or segment filters that would let custom company fields appear in those surfaces.
 
 == Changelog ==
+
+= 0.6.1 =
+* Excludes the 8 org_* contact custom fields from the FluentCRM Company Rollups plugin's configuration UI and computation (when that plugin is also active, version 0.2.0+). Rolling up enrichment values across contacts always returned the same value (since they're mirrored from the company record) and was confusing in the rollup section.
 
 = 0.6.0 =
 * Adds two sync surfaces backed by the company-side org_* cache introduced in v0.4.0:

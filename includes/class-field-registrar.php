@@ -15,6 +15,21 @@ class FCE_Field_Registrar {
 		// Defensive re-run if FluentCRM activates after we did, or if our
 		// activation fired before FluentCRM was loaded.
 		add_action( 'fluent_crm/after_init_app', array( __CLASS__, 'ensure_fields' ) );
+
+		// If fluentcrm-company-rollups is also active, exclude our org_*
+		// slugs from its rollup configuration UI and computation. The
+		// values are mirrored from the company side, so aggregating them
+		// across linked contacts would always return the same value and
+		// be meaningless. Filter is a no-op if rollups isn't installed.
+		add_filter( 'fcr_excluded_field_slugs', array( __CLASS__, 'exclude_from_rollups' ) );
+	}
+
+	/**
+	 * @param array<int, string> $slugs
+	 * @return array<int, string>
+	 */
+	public static function exclude_from_rollups( $slugs ) {
+		return array_merge( (array) $slugs, self::org_field_slugs() );
 	}
 
 	/**
