@@ -331,6 +331,74 @@ These don't change the JSON schema; they shape the quality of the narrative four
 4. **Test-connection button**: should it run a minimal `messages.create` with no tools (cheaper, only proves the API key works), or a `web_search_20250305` round-trip (proves both the key and the web-search org-level enable)? My recommendation: do the web-search round-trip — surfacing "web search not enabled" before the first real enrichment is more valuable than the small cost.
 5. **System prompt baseline**: borrow research-discipline language from the dossier skill (source attribution, gap-naming, epistemic calibration), or keep the spec's lightweight framing? My recommendation: borrow — it's free quality improvement.
 
+## Future consideration: prompt caching and Files API
+
+Investigated during the v0.1.0 build but deliberately deferred to keep the initial release small. Recording the analysis here so future work has a starting point and doesn't have to redo the recon.
+
+### The use case
+
+The system prompt is currently ~45kb (~11,000 tokens) — research-discipline preamble + active context modules + the schema instructions. The user prompt is small (~200 tokens, just the org name/website/industry hint). On every enrichment, Claude re-reads the entire 11k-token system prompt.
+
+Two questions to investigate were:
+
+1. Could prompt caching reduce per-call cost on repeat runs?
+2. Could the Files API replace inlined context modules with `file_id` references?
+
+### Prompt caching — viable, deferred for evidence
+
+Mechanics (verified against [docs.anthropic.com/.../prompt-caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)):
+
+- Mark a block with `cache_control: {"type": "ephemeral"}`. Up to 4 breakpoints per request.
+- Goes on `system[]`, `tools[]`, or `messages[].content[]` blocks. The system field has to be the array form, not a plain string.
+- Default TTL: 5 minutes (free refresh on hit). Optional `"ttl": "1h"` doubles the write premium but extends the window.
+- Cache key = exact prefix-byte hash up to and including the marked block. System prompt must be byte-identical for a hit.
+- **Web search wrinkle:** the docs explicitly note that "Web search toggle" invalidates the system cache. Translation: if `tools[]` changes between calls, the cache is busted. We don't change tool config per call, so we're fine — but anything that varies tool config (per-call `max_uses`, etc.) would need to live below a separate breakpoint.
+
+Pricing (Sonnet 4.6, current rates):
+
+| | Per MTok |
+|---|---|
+| Base input | $3 |
+| Cache write (5m) | $3.75 (1.25×) |
+| Cache write (1h) | $6 (2×) |
+| Cache read | $0.30 (0.1×) |
+
+Per-enrichment math for the 11k system prompt:
+
+- No caching: 11k × $3 = $0.033 every call
+- First call writes cache (5m): 11k × $3.75 = $0.041 (+$0.008 premium)
+- Subsequent calls within 5 min: 11k × $0.30 = $0.0033 (~10× cheaper)
+
+The realistic usage pattern matters more than the headline ratio. A one-off click 6 minutes after the previous one writes the cache twice and never reads it — that user pays *more* than no caching. Bulk-enrichment sessions (5–20 prospects in a sitting) get the big win on calls 2-N.
+
+The under-stated benefit is **consistency**: cache reads use the same KV state across calls within the TTL, so Claude's interpretation of the framing doesn't drift between sequential enrichments. Without caching, the model re-reads the 45kb prompt and re-interprets it from scratch each time.
+
+Implementation cost is small (~30 lines): convert `system` to array form, add a single `cache_control` marker on the last system block, log `cache_creation_input_tokens` / `cache_read_input_tokens` from the response into the success note's footer, expose a settings toggle. Defer until there's evidence — either real usage patterns showing bulk sessions, or an admin reporting consistency drift across runs.
+
+### Files API — not a substitute, possible future fit
+
+Mechanics (verified against [docs.anthropic.com/.../files](https://platform.claude.com/docs/en/build-with-claude/files)):
+
+- Beta API (`anthropic-beta: files-api-2025-04-14` header required).
+- Upload returns a `file_id`. Reference in subsequent calls via `{type: "document", source: {type: "file", file_id: ...}}`.
+- Persists until explicitly deleted (no TTL).
+- Uploads, downloads, deletes are free. **File content referenced in a Messages request is billed as input tokens at the standard rate.** Same per-call cost as inlining — Files API is a delivery mechanism, not a discount.
+
+Why it doesn't replace inlined context modules:
+
+1. Supported MIME types for `document` blocks are PDF, plain text, and images. Markdown is not — the docs explicitly tell admins to convert .md to plain text and inline it. Even converting our context modules to PDF would be heavy mechanism for what's just text.
+2. `document` blocks live in `messages[].content`, not `system[]`. Moving context modules to a user message changes their semantics — they become "the document under analysis" rather than "the framing for the research."
+3. **No token cost savings.** I initially expected the file-ref approach would let Claude tokenize once and reuse the result; it does not. Re-tokenizes every call.
+4. Persistence is the admin's problem. An edit to a context module means re-upload, update the stored `file_id`, and version-track which file_id was used by which enrichment. Lifecycle management we don't currently have.
+5. Beta header dependency. For a plugin we ship to others, depending on a beta API that may change before GA is risky.
+
+Where Files API *would* fit: a future "attach annual report PDF to a company" feature. Upload-on-attach, reference by `file_id` per enrichment call, no inlining of large binary documents. That's a different feature from system-prompt context modules and would stack with prompt caching rather than compete with it.
+
+### What to revisit, and when
+
+- **Prompt caching** — revisit when (a) admins report bulk-enrichment usage that would benefit from cache reads, (b) someone asks for cross-call consistency, or (c) a single context module grows past ~30k tokens (the prompt becomes expensive enough that even the write premium pays for itself on the second call).
+- **Files API** — revisit when there's a feature request to attach external documents (annual reports, 990s, partnership prospectuses) to a company record. Don't use it as a substitute for inlined context modules.
+
 ## Database structure (verified live by rollups plugin)
 
 | Table | Purpose | Relevance to enrichment |

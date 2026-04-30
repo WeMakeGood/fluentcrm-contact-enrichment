@@ -107,6 +107,13 @@ The settings tab "Focus Areas" stores its option list in `fce_focus_area_options
 
 Custom field definitions live in WP options `_fluentcrm_contact_custom_fields` and `_fluentcrm_company_custom_fields`.
 
+## Investigated and deferred
+
+Two API features were evaluated during the v0.1.0 build and consciously left out — both for "wait for evidence" reasons, not because they're inappropriate. Full analysis in `docs/fluentcrm-enrichment-research.md` under "Future consideration: prompt caching and Files API."
+
+- **Anthropic prompt caching.** Real cost win on bulk-enrichment sessions and a real consistency property. Implementation is ~30 lines. Deferred because realistic single-click usage hits the 5-minute TTL boundary often enough that we want actual usage data before deciding whether to cache and at what TTL. Worth revisiting when admins report bulk runs, ask for cross-call consistency, or a single context module grows past ~30k tokens.
+- **Anthropic Files API.** Not a substitute for inlined context modules — same per-call token cost, only PDF/plain text supported as `document` blocks (Markdown isn't), document blocks belong in `messages[]` not `system[]`, and the persistence model would push lifecycle management onto admins. Reasonable fit for a future "attach annual report PDF to a company record" feature, where it would stack with (not replace) prompt caching. Beta header dependency.
+
 ## Known limitations
 
 - **Vue admin caches stale company data.** After clicking Enrich and waiting for the cron job, a hard browser refresh can show stale section state (status still Pending) because FluentCRM's Vue admin caches company payloads. Re-entering the section in the Vue router refreshes it cleanly. The button text "Queued — refresh to see status" is honest about this.
