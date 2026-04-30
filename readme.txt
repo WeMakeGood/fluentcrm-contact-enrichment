@@ -4,7 +4,7 @@ Tags: fluentcrm, crm, claude, anthropic, enrichment, research
 Requires at least: 5.8
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.4.0
+Stable tag: 0.5.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -82,6 +82,10 @@ The company's Enrichment Status flips to Failed and a note is added describing t
 The Enrichment Status field appears on the company record. FluentCRM does not currently expose extension points for company list columns or segment filters that would let custom company fields appear in those surfaces.
 
 == Changelog ==
+
+= 0.5.0 =
+* The 11 enrichment fields no longer appear in FluentCRM's "Custom Data" sidebar on the company profile. They now render in the plugin's own Enrichment section instead, organized by group (Enrichment / Org Profile / Alignment) for cleaner reading.
+* Field definitions still exist in FluentCRM's normal management UI (Settings → Custom Fields) — only the company profile's display surface is filtered. All read/write paths continue to work identically.
 
 = 0.4.0 =
 * The 8 org_* enrichment values (org_type, org_sector, org_employees, org_revenue, org_geo_scope, org_focus_areas, org_partnership_models, org_alignment_score) are now also cached on the company record. Previously they lived only on contacts, which made the company the wrong source of truth for organizational data. Now the company is canonical.

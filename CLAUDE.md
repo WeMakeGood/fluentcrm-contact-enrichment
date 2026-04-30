@@ -71,6 +71,18 @@ Use `web_search_20250305`. The newer `web_search_20260209` adds dynamic filterin
 
 Stored AES-256-CBC encrypted with a key derived from WP auth salts (`hash('sha256', AUTH_KEY . SECURE_AUTH_KEY . AUTH_SALT . 'fluentcrm-contact-enrichment', true)`). The stored value starts with `fce1:` so the version is identifiable for future migrations. A server compromise that reads `wp-config.php` can decrypt — that's the realistic threat model for WP plugins, and we don't claim to defend beyond it. The save path only updates the option when a non-empty value is posted, so resubmitting the form without retyping doesn't blank the stored key.
 
+### Hiding the 11 enrichment fields from FluentCRM's Custom Data sidebar (v0.5.0)
+
+FluentCRM's company profile renders all custom fields in a generic "Custom Data" sidebar. With 11 fields under three groups, that took a lot of vertical space and felt disconnected from the Enrichment section we already render via `addCompanyProfileSection()`.
+
+`fluent_crm/admin_vars` is a public PHP filter that wraps the entire data payload going to the Vue admin. Hooking it lets us strip the plugin's slugs out of `$data['company_custom_fields']` without modifying the field definitions option. The field definitions stay intact, so:
+
+- `Subscriber::syncCustomFieldValues()` and `Companies::createOrUpdate(..., 'custom_values' => [...])` continue to read/write the same fields normally
+- Settings → Custom Fields still shows them in the management UI (it reads the option directly via REST endpoints, not through `admin_vars`)
+- Only the company profile's "Custom Data" sidebar rendering is affected
+
+We render the same data ourselves in the Enrichment section in a more legible grouped layout. The contact-side `contact_custom_fields` is intentionally untouched — admins viewing a contact still see the 8 org_* values in the regular Custom Profile Data sidebar (no plugin-controlled section for contacts exists yet).
+
 ### Company-side org_* cache (v0.4.0)
 
 Through v0.3.0, the 8 org_* enrichment values lived only on contacts (via `Subscriber::syncCustomFieldValues()`). The company record had `enrichment_status`, `enrichment_date`, and `enrichment_confidence` — but the *organizational* data (type, sector, employees, etc.) was only on contacts. That made the company the wrong source of truth for organizational facts: a contact joining a company *after* enrichment had no way to inherit the company's data, and a sync-to-contacts button would have to "pick a source contact" arbitrarily.

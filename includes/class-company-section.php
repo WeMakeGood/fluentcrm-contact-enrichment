@@ -14,6 +14,56 @@ class FCE_Company_Section {
 		add_action( 'init', array( __CLASS__, 'register_section' ) );
 		add_action( 'wp_ajax_' . FCE_AJAX_TRIGGER, array( __CLASS__, 'ajax_trigger' ) );
 		add_action( 'admin_footer', array( __CLASS__, 'enqueue_click_handler' ) );
+		add_filter( 'fluent_crm/admin_vars', array( __CLASS__, 'hide_plugin_fields_from_sidebar' ), 99 );
+	}
+
+	/**
+	 * Strip the plugin's 11 enrichment fields out of the company custom-field
+	 * list that gets handed to FluentCRM's Vue admin. The fields stay defined
+	 * (so the Settings → Custom Fields management UI still sees them and
+	 * data continues to read/write through them), but they no longer render
+	 * in the company profile's "Custom Data" sidebar — our Enrichment
+	 * profile section displays them instead, in a controlled format.
+	 *
+	 * Priority 99 so we run after FluentCRM populates the data on default
+	 * priority 10.
+	 *
+	 * @param array $data
+	 * @return array
+	 */
+	public static function hide_plugin_fields_from_sidebar( $data ) {
+		if ( ! isset( $data['company_custom_fields'] ) || ! is_array( $data['company_custom_fields'] ) ) {
+			return $data;
+		}
+
+		$plugin_slugs = self::plugin_slug_set();
+
+		$data['company_custom_fields'] = array_values( array_filter(
+			$data['company_custom_fields'],
+			static function ( $field ) use ( $plugin_slugs ) {
+				return empty( $field['slug'] ) || ! isset( $plugin_slugs[ $field['slug'] ] );
+			}
+		) );
+
+		return $data;
+	}
+
+	/**
+	 * The 11 slugs the plugin manages on the company side, returned as an
+	 * associative array for fast in_array-style lookups.
+	 *
+	 * @return array<string, true>
+	 */
+	private static function plugin_slug_set() {
+		$slugs = array();
+		if ( class_exists( 'FCE_Field_Registrar' ) ) {
+			foreach ( FCE_Field_Registrar::company_field_definitions() as $def ) {
+				if ( ! empty( $def['slug'] ) ) {
+					$slugs[ $def['slug'] ] = true;
+				}
+			}
+		}
+		return $slugs;
 	}
 
 	/**
@@ -59,6 +109,9 @@ class FCE_Company_Section {
 		$date       = self::custom_value( $company, FCE_FIELD_DATE );
 		$confidence = self::custom_value( $company, FCE_FIELD_CONFIDENCE );
 		$last_note  = self::most_recent_enrichment_note( (int) $company->id );
+		$cv         = isset( $company->meta['custom_values'] ) && is_array( $company->meta['custom_values'] )
+			? $company->meta['custom_values']
+			: array();
 
 		$is_running = in_array( $status, array( 'Pending', 'Processing' ), true );
 
@@ -68,7 +121,7 @@ class FCE_Company_Section {
 		ob_start();
 		?>
 		<div class="fce-section" style="padding: 1em 0;">
-			<dl style="display: grid; grid-template-columns: max-content 1fr; gap: 0.4em 1em; margin: 0 0 1em 0;">
+			<dl class="fce-grid" style="display: grid; grid-template-columns: max-content 1fr; gap: 0.4em 1em; margin: 0 0 1em 0;">
 				<dt><strong><?php esc_html_e( 'Status', 'fluentcrm-contact-enrichment' ); ?></strong></dt>
 				<dd id="fce-status-value"><?php echo esc_html( $status ); ?></dd>
 
@@ -82,6 +135,41 @@ class FCE_Company_Section {
 					<dd><?php echo esc_html( $confidence ); ?></dd>
 				<?php endif; ?>
 			</dl>
+
+			<?php
+			$org_profile_rows = self::format_value_rows( $cv, array(
+				'org_type'               => __( 'Type', 'fluentcrm-contact-enrichment' ),
+				'org_sector'             => __( 'Sector / Industry', 'fluentcrm-contact-enrichment' ),
+				'org_employees'          => __( 'Employees', 'fluentcrm-contact-enrichment' ),
+				'org_revenue'            => __( 'Revenue', 'fluentcrm-contact-enrichment' ),
+				'org_geo_scope'          => __( 'Geographic scope', 'fluentcrm-contact-enrichment' ),
+				'org_focus_areas'        => __( 'Focus areas', 'fluentcrm-contact-enrichment' ),
+				'org_partnership_models' => __( 'Partnership models', 'fluentcrm-contact-enrichment' ),
+			) );
+			$alignment_rows = self::format_value_rows( $cv, array(
+				'org_alignment_score' => __( 'Alignment score', 'fluentcrm-contact-enrichment' ),
+			) );
+			?>
+
+			<?php if ( ! empty( $org_profile_rows ) ) : ?>
+				<h4 style="margin: 1.25em 0 0.5em 0; font-size: 13px; color: #606266;"><?php esc_html_e( 'Org Profile', 'fluentcrm-contact-enrichment' ); ?></h4>
+				<dl class="fce-grid" style="display: grid; grid-template-columns: max-content 1fr; gap: 0.4em 1em; margin: 0 0 1em 0;">
+					<?php foreach ( $org_profile_rows as $row ) : ?>
+						<dt><strong><?php echo esc_html( $row['label'] ); ?></strong></dt>
+						<dd><?php echo esc_html( $row['value'] ); ?></dd>
+					<?php endforeach; ?>
+				</dl>
+			<?php endif; ?>
+
+			<?php if ( ! empty( $alignment_rows ) ) : ?>
+				<h4 style="margin: 1.25em 0 0.5em 0; font-size: 13px; color: #606266;"><?php esc_html_e( 'Alignment', 'fluentcrm-contact-enrichment' ); ?></h4>
+				<dl class="fce-grid" style="display: grid; grid-template-columns: max-content 1fr; gap: 0.4em 1em; margin: 0 0 1em 0;">
+					<?php foreach ( $alignment_rows as $row ) : ?>
+						<dt><strong><?php echo esc_html( $row['label'] ); ?></strong></dt>
+						<dd><?php echo esc_html( $row['value'] ); ?></dd>
+					<?php endforeach; ?>
+				</dl>
+			<?php endif; ?>
 
 			<button type="button"
 				id="fce-enrich-button"
@@ -284,6 +372,40 @@ class FCE_Company_Section {
 	// ---------------------------------------------------------------------
 	// Helpers
 	// ---------------------------------------------------------------------
+
+	/**
+	 * Build a list of {label, value} rows for display, skipping any slug
+	 * whose stored value is empty. Multi-select values stored as arrays
+	 * (FluentCRM's company-side format) are joined with ", " for
+	 * readability.
+	 *
+	 * @param array<string, mixed>   $custom_values  company.meta['custom_values']
+	 * @param array<string, string>  $slug_to_label  ordered map of slug => human label
+	 * @return array<int, array{label:string, value:string}>
+	 */
+	private static function format_value_rows( array $custom_values, array $slug_to_label ) {
+		$rows = array();
+		foreach ( $slug_to_label as $slug => $label ) {
+			if ( ! isset( $custom_values[ $slug ] ) ) {
+				continue;
+			}
+			$raw = $custom_values[ $slug ];
+			if ( is_array( $raw ) ) {
+				$raw = implode( ', ', array_map( 'strval', array_filter( $raw, static function ( $v ) {
+					return '' !== trim( (string) $v );
+				} ) ) );
+			}
+			$value = trim( (string) $raw );
+			if ( '' === $value ) {
+				continue;
+			}
+			$rows[] = array(
+				'label' => $label,
+				'value' => $value,
+			);
+		}
+		return $rows;
+	}
 
 	/**
 	 * Read a custom_values key from a hydrated Company model. Defaults to
