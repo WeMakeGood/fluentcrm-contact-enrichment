@@ -12,10 +12,12 @@ defined( 'ABSPATH' ) || exit;
 
 class FCE_Admin_Settings {
 
-	const TAB_API     = 'api';
-	const TAB_CONTEXT = 'context';
-	const TAB_FOCUS   = 'focus';
-	const TAB_DANGER  = 'danger';
+	const TAB_API             = 'api';
+	const TAB_CONTEXT         = 'context';
+	const TAB_FOCUS           = 'focus';
+	const TAB_CONTACT_CONTEXT = 'contact_context';
+	const TAB_CAPACITY        = 'capacity';
+	const TAB_DANGER          = 'danger';
 
 	public static function register_hooks() {
 		add_action( 'admin_menu', array( __CLASS__, 'add_menu_page' ) );
@@ -40,7 +42,15 @@ class FCE_Admin_Settings {
 		}
 
 		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : self::TAB_API;
-		if ( ! in_array( $tab, array( self::TAB_API, self::TAB_CONTEXT, self::TAB_FOCUS, self::TAB_DANGER ), true ) ) {
+		$valid_tabs = array(
+			self::TAB_API,
+			self::TAB_CONTEXT,
+			self::TAB_FOCUS,
+			self::TAB_CONTACT_CONTEXT,
+			self::TAB_CAPACITY,
+			self::TAB_DANGER,
+		);
+		if ( ! in_array( $tab, $valid_tabs, true ) ) {
 			$tab = self::TAB_API;
 		}
 
@@ -52,8 +62,10 @@ class FCE_Admin_Settings {
 
 			<h2 class="nav-tab-wrapper">
 				<?php self::render_tab_link( self::TAB_API, __( 'API Settings', 'fluentcrm-contact-enrichment' ), $tab ); ?>
-				<?php self::render_tab_link( self::TAB_CONTEXT, __( 'Context Modules', 'fluentcrm-contact-enrichment' ), $tab ); ?>
+				<?php self::render_tab_link( self::TAB_CONTEXT, __( 'Company Context', 'fluentcrm-contact-enrichment' ), $tab ); ?>
 				<?php self::render_tab_link( self::TAB_FOCUS, __( 'Focus Areas', 'fluentcrm-contact-enrichment' ), $tab ); ?>
+				<?php self::render_tab_link( self::TAB_CONTACT_CONTEXT, __( 'Contact Context', 'fluentcrm-contact-enrichment' ), $tab ); ?>
+				<?php self::render_tab_link( self::TAB_CAPACITY, __( 'Capacity Tiers', 'fluentcrm-contact-enrichment' ), $tab ); ?>
 				<?php self::render_tab_link( self::TAB_DANGER, __( 'Danger Zone', 'fluentcrm-contact-enrichment' ), $tab ); ?>
 			</h2>
 
@@ -75,6 +87,12 @@ class FCE_Admin_Settings {
 							break;
 						case self::TAB_FOCUS:
 							self::render_focus_tab();
+							break;
+						case self::TAB_CONTACT_CONTEXT:
+							self::render_contact_context_tab();
+							break;
+						case self::TAB_CAPACITY:
+							self::render_capacity_tab();
 							break;
 					}
 					?>
@@ -122,6 +140,12 @@ class FCE_Admin_Settings {
 				break;
 			case self::TAB_FOCUS:
 				self::save_focus_tab();
+				break;
+			case self::TAB_CONTACT_CONTEXT:
+				self::save_contact_context_tab();
+				break;
+			case self::TAB_CAPACITY:
+				self::save_capacity_tab();
 				break;
 		}
 
@@ -469,6 +493,156 @@ class FCE_Admin_Settings {
 		<?php
 	}
 
+	/**
+	 * Contact-side context modules — separate from company-side modules
+	 * because the framing for individual research (donor prospecting,
+	 * cohort prep, sales prospecting, board recruitment) is different
+	 * from the framing for company research.
+	 */
+	private static function render_contact_context_tab() {
+		$modules = FCE_Contact_Context_Modules::all();
+		if ( empty( $modules ) ) {
+			$modules = array(
+				array( 'title' => '', 'content' => '', 'active' => true, 'order' => 0 ),
+			);
+		}
+		?>
+		<p>
+			<?php esc_html_e( 'Markdown modules injected into every contact-research enrichment prompt, in display order. Use them to define what your organization considers relevant for individual research — your mission, what alignment means for individuals, the use case (donor research, cohort prep, sales prospecting, board recruitment), and any practitioner conventions.', 'fluentcrm-contact-enrichment' ); ?>
+		</p>
+		<p style="font-size: 13px; color: #606266;">
+			<?php esc_html_e( 'Contact research operates under Apra-derived professional standards: research is restricted to information bearing on the relationship the requesting organization is trying to build. The modules below tell Claude what "relevant" means for your use case.', 'fluentcrm-contact-enrichment' ); ?>
+		</p>
+
+		<div class="fce-modules" id="fce-contact-modules">
+			<?php foreach ( $modules as $i => $module ) : ?>
+				<div class="fce-module" data-index="<?php echo (int) $i; ?>">
+					<div class="fce-module-row">
+						<span class="fce-module-handle dashicons dashicons-menu" aria-hidden="true"></span>
+						<div>
+							<input type="text" name="fce_contact_modules[<?php echo (int) $i; ?>][title]"
+								value="<?php echo esc_attr( $module['title'] ); ?>"
+								placeholder="<?php esc_attr_e( 'Module title (e.g. What we mean by donor capacity)', 'fluentcrm-contact-enrichment' ); ?>" />
+							<textarea name="fce_contact_modules[<?php echo (int) $i; ?>][content]"
+								placeholder="<?php esc_attr_e( 'Markdown content. Define the use case, alignment criteria, and what relevant means for your research.', 'fluentcrm-contact-enrichment' ); ?>"><?php
+								echo esc_textarea( $module['content'] );
+							?></textarea>
+							<div class="fce-module-meta">
+								<label>
+									<input type="checkbox" name="fce_contact_modules[<?php echo (int) $i; ?>][active]" value="1" <?php checked( $module['active'] ); ?> />
+									<?php esc_html_e( 'Active', 'fluentcrm-contact-enrichment' ); ?>
+								</label>
+								<button type="button" class="button button-link-delete fce-remove-module"><?php esc_html_e( 'Remove', 'fluentcrm-contact-enrichment' ); ?></button>
+							</div>
+						</div>
+					</div>
+				</div>
+			<?php endforeach; ?>
+		</div>
+
+		<p>
+			<button type="button" class="button" id="fce-add-contact-module"><?php esc_html_e( 'Add Module', 'fluentcrm-contact-enrichment' ); ?></button>
+		</p>
+
+		<script>
+		(function () {
+			var container = document.getElementById('fce-contact-modules');
+			document.getElementById('fce-add-contact-module').addEventListener('click', function () {
+				var i = container.querySelectorAll('.fce-module').length;
+				var html = '<div class="fce-module" data-index="' + i + '">' +
+					'<div class="fce-module-row">' +
+					'<span class="fce-module-handle dashicons dashicons-menu" aria-hidden="true"></span>' +
+					'<div>' +
+					'<input type="text" name="fce_contact_modules[' + i + '][title]" placeholder="<?php echo esc_js( __( 'Module title', 'fluentcrm-contact-enrichment' ) ); ?>" />' +
+					'<textarea name="fce_contact_modules[' + i + '][content]" placeholder="<?php echo esc_js( __( 'Markdown content', 'fluentcrm-contact-enrichment' ) ); ?>"></textarea>' +
+					'<div class="fce-module-meta">' +
+					'<label><input type="checkbox" name="fce_contact_modules[' + i + '][active]" value="1" checked /> <?php echo esc_js( __( 'Active', 'fluentcrm-contact-enrichment' ) ); ?></label>' +
+					'<button type="button" class="button button-link-delete fce-remove-module"><?php echo esc_js( __( 'Remove', 'fluentcrm-contact-enrichment' ) ); ?></button>' +
+					'</div></div></div></div>';
+				container.insertAdjacentHTML('beforeend', html);
+			});
+			container.addEventListener('click', function (e) {
+				if (e.target && e.target.classList.contains('fce-remove-module')) {
+					var module = e.target.closest('.fce-module');
+					if (module) { module.parentNode.removeChild(module); }
+				}
+			});
+			if (window.jQuery && jQuery.fn.sortable) {
+				jQuery(container).sortable({
+					handle: '.fce-module-handle',
+					placeholder: 'fce-module',
+					forcePlaceholderSize: true
+				});
+			}
+		})();
+		</script>
+		<?php
+	}
+
+	/**
+	 * Capacity tier options — admin-configurable values for the
+	 * `individual_capacity_tier` field. Defaults are donor-flavored
+	 * (Major / Mid / Standard / Unknown) but admins running other
+	 * use cases can rewrite (e.g. cohort programs: Senior Leader /
+	 * Mid-Career / Emerging / Unknown; B2B: Decision Maker /
+	 * Influencer / End User / Unknown).
+	 */
+	private static function render_capacity_tab() {
+		$options = FCE_Field_Registrar::capacity_tier_options();
+		if ( empty( $options ) ) {
+			$options = FCE_Field_Registrar::default_capacity_tiers();
+		}
+		?>
+		<p>
+			<?php esc_html_e( 'Values for the Capacity Tier field on contacts. The defaults are donor-flavored; rewrite them to fit your use case (e.g. cohort programs might use leadership tiers, B2B sales might use decision authority). Saving here updates the field definition; existing values stored on contacts are not affected.', 'fluentcrm-contact-enrichment' ); ?>
+		</p>
+		<p style="font-size: 13px; color: #606266;">
+			<?php esc_html_e( 'The system prompt reads these values at enrichment time and instructs Claude to pick from them. Order matters: Claude treats the first value as the highest tier and the last as the lowest. Include "Unknown" as the final value so Claude has a fallback when capacity cannot be reasonably determined.', 'fluentcrm-contact-enrichment' ); ?>
+		</p>
+
+		<ul class="fce-focus-list" id="fce-capacity-list">
+			<?php foreach ( $options as $i => $option ) : ?>
+				<li class="fce-focus-item">
+					<span class="fce-focus-handle dashicons dashicons-menu" aria-hidden="true"></span>
+					<input type="text" name="fce_capacity_tiers[]" value="<?php echo esc_attr( $option ); ?>" />
+					<button type="button" class="button-link fce-remove-focus" aria-label="<?php esc_attr_e( 'Remove option', 'fluentcrm-contact-enrichment' ); ?>">&times;</button>
+				</li>
+			<?php endforeach; ?>
+		</ul>
+
+		<p>
+			<button type="button" class="button" id="fce-add-capacity"><?php esc_html_e( 'Add Tier', 'fluentcrm-contact-enrichment' ); ?></button>
+		</p>
+
+		<script>
+		(function () {
+			var list = document.getElementById('fce-capacity-list');
+			document.getElementById('fce-add-capacity').addEventListener('click', function () {
+				var html = '<li class="fce-focus-item">' +
+					'<span class="fce-focus-handle dashicons dashicons-menu" aria-hidden="true"></span>' +
+					'<input type="text" name="fce_capacity_tiers[]" value="" />' +
+					'<button type="button" class="button-link fce-remove-focus">&times;</button>' +
+					'</li>';
+				list.insertAdjacentHTML('beforeend', html);
+				list.lastElementChild.querySelector('input').focus();
+			});
+			list.addEventListener('click', function (e) {
+				if (e.target && e.target.classList.contains('fce-remove-focus')) {
+					var item = e.target.closest('.fce-focus-item');
+					if (item) { item.parentNode.removeChild(item); }
+				}
+			});
+			if (window.jQuery && jQuery.fn.sortable) {
+				jQuery(list).sortable({
+					handle: '.fce-focus-handle',
+					placeholder: 'fce-focus-item'
+				});
+			}
+		})();
+		</script>
+		<?php
+	}
+
 	// ---------------------------------------------------------------------
 	// Tab savers
 	// ---------------------------------------------------------------------
@@ -523,6 +697,39 @@ class FCE_Admin_Settings {
 		// Sync the field definition's options array so the FluentCRM admin
 		// UI reflects the change immediately.
 		FCE_Field_Registrar::sync_focus_area_options();
+	}
+
+	private static function save_contact_context_tab() {
+		$modules = isset( $_POST['fce_contact_modules'] ) && is_array( $_POST['fce_contact_modules'] )
+			? $_POST['fce_contact_modules']
+			: array();
+		FCE_Contact_Context_Modules::save( $modules );
+	}
+
+	private static function save_capacity_tab() {
+		$posted = isset( $_POST['fce_capacity_tiers'] ) && is_array( $_POST['fce_capacity_tiers'] )
+			? $_POST['fce_capacity_tiers']
+			: array();
+
+		$cleaned = array();
+		$seen    = array();
+		foreach ( $posted as $option ) {
+			$option = trim( sanitize_text_field( wp_unslash( $option ) ) );
+			if ( '' === $option || isset( $seen[ $option ] ) ) {
+				continue;
+			}
+			$seen[ $option ] = true;
+			$cleaned[]       = $option;
+		}
+
+		// Always preserve a fallback. Empty list would break enrichment
+		// (Claude has nothing to pick from); fall back to defaults.
+		if ( empty( $cleaned ) ) {
+			$cleaned = FCE_Field_Registrar::default_capacity_tiers();
+		}
+
+		update_option( FCE_OPT_CAPACITY_TIERS, $cleaned, false );
+		FCE_Field_Registrar::sync_capacity_tier_options();
 	}
 
 	// ---------------------------------------------------------------------

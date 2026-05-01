@@ -29,7 +29,27 @@ class FCE_Field_Registrar {
 	 * @return array<int, string>
 	 */
 	public static function exclude_from_rollups( $slugs ) {
-		return array_merge( (array) $slugs, self::org_field_slugs() );
+		return array_merge( (array) $slugs, self::all_contact_field_slugs() );
+	}
+
+	/**
+	 * Every contact-side slug this plugin manages — org_* mirrors,
+	 * individual_* research fields, and the individual status/consent
+	 * fields. None of these make sense to aggregate via rollups
+	 * (the org_* values are mirrored from companies and identical for
+	 * every contact at a company; the individual_* values are intrinsic
+	 * to each person).
+	 *
+	 * @return array<int, string>
+	 */
+	public static function all_contact_field_slugs() {
+		$slugs = array();
+		foreach ( self::contact_field_definitions() as $def ) {
+			if ( ! empty( $def['slug'] ) ) {
+				$slugs[] = $def['slug'];
+			}
+		}
+		return $slugs;
 	}
 
 	/**
@@ -115,11 +135,32 @@ class FCE_Field_Registrar {
 
 	/**
 	 * The plugin's contact field definitions. Built dynamically because
-	 * `org_focus_areas` options come from the admin-configured list.
+	 * `org_focus_areas` options come from the admin-configured list and
+	 * the v0.7.0 individual-research fields share the same dynamic-options
+	 * pattern for `individual_capacity_tier`.
+	 *
+	 * Returns: org_* fields (mirrored from companies, used for B2B
+	 * segmentation), then individual_* fields (intrinsic to the contact,
+	 * used for fundraising / cohort prep / sales / board research).
 	 *
 	 * @return array<int, array<string, mixed>>
 	 */
 	public static function contact_field_definitions() {
+		return array_merge(
+			self::org_mirror_field_definitions(),
+			self::individual_field_definitions()
+		);
+	}
+
+	/**
+	 * The 8 fields mirrored from the company side onto every linked
+	 * contact, plus the contact's own org_sector. These exist on the
+	 * contact (rather than only on the company) because FluentCRM
+	 * segment builders only see contact custom fields.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function org_mirror_field_definitions() {
 		return array(
 			array(
 				'slug'    => 'org_type',
@@ -193,6 +234,165 @@ class FCE_Field_Registrar {
 	}
 
 	/**
+	 * The 9 individual-research field definitions (4 status/consent + 5
+	 * research outputs), used by the contact
+	 * enrichment surface (v0.7.0+). These are intrinsic to the person —
+	 * not derived from their employer — and answer use-case-defined
+	 * research questions: donor capacity, cohort-prep readiness, sales
+	 * decision authority, board-recruitment context.
+	 *
+	 * The vocabulary is generic (`individual_*` prefix) so the same
+	 * fields work across use cases. Capacity tier values are
+	 * admin-configurable (defaults are donor-flavored); the other four
+	 * structured fields use fixed vocabularies. The research-consent
+	 * field gates enrichment per-contact.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function individual_field_definitions() {
+		return array(
+			array(
+				'slug'    => FCE_IND_STATUS,
+				'label'   => __( 'Individual Enrichment Status', 'fluentcrm-contact-enrichment' ),
+				'type'    => 'select-one',
+				'group'   => FCE_GROUP_IND_STATUS,
+				'options' => array(
+					'Not Enriched', 'Pending', 'Processing', 'Complete', 'Failed', 'Restricted',
+				),
+			),
+			array(
+				'slug'  => FCE_IND_DATE,
+				'label' => __( 'Individual Enrichment Date', 'fluentcrm-contact-enrichment' ),
+				'type'  => 'date',
+				'group' => FCE_GROUP_IND_STATUS,
+			),
+			array(
+				'slug'    => FCE_IND_CONFIDENCE,
+				'label'   => __( 'Individual Enrichment Confidence', 'fluentcrm-contact-enrichment' ),
+				'type'    => 'select-one',
+				'group'   => FCE_GROUP_IND_STATUS,
+				'options' => array( 'High', 'Medium', 'Low' ),
+			),
+			array(
+				'slug'    => FCE_IND_CONSENT,
+				'label'   => __( 'Research Consent', 'fluentcrm-contact-enrichment' ),
+				'type'    => 'select-one',
+				'group'   => FCE_GROUP_IND_STATUS,
+				'options' => array( 'Allowed', 'Restricted' ),
+			),
+			array(
+				'slug'    => 'individual_capacity_tier',
+				'label'   => __( 'Capacity Tier', 'fluentcrm-contact-enrichment' ),
+				'type'    => 'select-one',
+				'group'   => FCE_GROUP_INDIVIDUAL,
+				'options' => self::capacity_tier_options(),
+			),
+			array(
+				'slug'    => 'individual_alignment',
+				'label'   => __( 'Alignment', 'fluentcrm-contact-enrichment' ),
+				'type'    => 'select-one',
+				'group'   => FCE_GROUP_INDIVIDUAL,
+				'options' => array( 'Strong', 'Moderate', 'Weak', 'Unknown' ),
+			),
+			array(
+				'slug'    => 'individual_engagement_readiness',
+				'label'   => __( 'Engagement Readiness', 'fluentcrm-contact-enrichment' ),
+				'type'    => 'select-one',
+				'group'   => FCE_GROUP_INDIVIDUAL,
+				'options' => array( 'High', 'Medium', 'Low', 'Unknown' ),
+			),
+			array(
+				'slug'    => 'individual_prior_relationship',
+				'label'   => __( 'Prior Relationship', 'fluentcrm-contact-enrichment' ),
+				'type'    => 'select-one',
+				'group'   => FCE_GROUP_INDIVIDUAL,
+				'options' => array( 'Yes', 'Possible', 'No', 'Unknown' ),
+			),
+			array(
+				'slug'    => 'individual_relevant_signals_present',
+				'label'   => __( 'Relevant Signals Present', 'fluentcrm-contact-enrichment' ),
+				'type'    => 'select-one',
+				'group'   => FCE_GROUP_INDIVIDUAL,
+				'options' => array( 'Yes', 'No', 'Unknown' ),
+			),
+		);
+	}
+
+	/**
+	 * Slug list for just the individual_* fields (used by exclusion
+	 * filters and by the contact-side cache reader).
+	 *
+	 * @return array<int, string>
+	 */
+	public static function individual_field_slugs() {
+		$slugs = array();
+		foreach ( self::individual_field_definitions() as $def ) {
+			if ( ! empty( $def['slug'] ) ) {
+				$slugs[] = $def['slug'];
+			}
+		}
+		return $slugs;
+	}
+
+	/**
+	 * The 5 *output* slugs (capacity, alignment, engagement, prior
+	 * relationship, signals flag) — excludes the status/date/confidence/
+	 * consent slugs that the job manages directly.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function individual_output_slugs() {
+		return array(
+			'individual_capacity_tier',
+			'individual_alignment',
+			'individual_engagement_readiness',
+			'individual_prior_relationship',
+			'individual_relevant_signals_present',
+		);
+	}
+
+	/**
+	 * Returns the admin-configured capacity tier options, with a default
+	 * (donor-flavored) list for first-run.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function capacity_tier_options() {
+		$stored = get_option( FCE_OPT_CAPACITY_TIERS );
+		if ( is_array( $stored ) && ! empty( $stored ) ) {
+			return array_values( array_filter( array_map( 'strval', $stored ) ) );
+		}
+		return self::default_capacity_tiers();
+	}
+
+	/**
+	 * Donor-flavored default. Admins can rewrite for non-fundraising use
+	 * cases — see settings page.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function default_capacity_tiers() {
+		return array( 'Major', 'Mid', 'Standard', 'Unknown' );
+	}
+
+	/**
+	 * Refresh the `individual_capacity_tier` field options to match the
+	 * admin-configured list. Called from settings save.
+	 *
+	 * @return void
+	 */
+	public static function sync_capacity_tier_options() {
+		if ( ! self::fluentcrm_loaded() ) {
+			return;
+		}
+		self::rewrite_field_options(
+			'\\FluentCrm\\App\\Models\\CustomContactField',
+			'individual_capacity_tier',
+			self::capacity_tier_options()
+		);
+	}
+
+	/**
 	 * The plugin's company field definitions. Includes the three status
 	 * fields (Enrichment Status, Date Enriched, Confidence) that exist
 	 * only on the company, plus the 8 org_* fields mirrored from the
@@ -230,7 +430,10 @@ class FCE_Field_Registrar {
 		// Mirror the 8 org_* fields from the contact side so the company
 		// has its own cached canonical record. Same slugs, same options,
 		// same groups — admins see matched surfaces in the Vue admin.
-		return array_merge( $status_fields, self::contact_field_definitions() );
+		// Note: only the org_mirror set goes on the company, NOT the
+		// individual_* fields (those are intrinsic to a person and
+		// don't belong on a company record).
+		return array_merge( $status_fields, self::org_mirror_field_definitions() );
 	}
 
 	/**
@@ -462,13 +665,19 @@ class FCE_Field_Registrar {
 	}
 
 	/**
-	 * The 8 contact-side org_* slugs that mirror onto company-side.
+	 * The 8 contact-side org_* slugs that mirror onto company-side. Used
+	 * by the heal pass and the contact-sync helper to identify which
+	 * cached values to copy from company to contact (or vice versa).
+	 *
+	 * Does NOT include the individual_* fields — those are intrinsic to
+	 * the person and don't mirror to companies. For all plugin-managed
+	 * contact slugs, use all_contact_field_slugs() instead.
 	 *
 	 * @return array<int, string>
 	 */
 	public static function org_field_slugs() {
 		$slugs = array();
-		foreach ( self::contact_field_definitions() as $def ) {
+		foreach ( self::org_mirror_field_definitions() as $def ) {
 			if ( ! empty( $def['slug'] ) ) {
 				$slugs[] = $def['slug'];
 			}

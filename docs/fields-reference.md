@@ -55,6 +55,51 @@ Reference for the FluentCRM custom fields this plugin creates and how they're po
 
 If anything in the pipeline fails: status flips to `"Failed"`, a clearly-titled error note is written to the company, contacts are not touched.
 
+## Contact research pipeline (separate from company research)
+
+```
+[Admin clicks "Enrich This Contact" on contact profile]
+        │
+        ▼
+[admin-ajax.php?action=fce_trigger_contact_enrichment]
+   • capability + nonce checks
+   • contact custom field: individual_enrichment_status → "Pending"
+   • wp_schedule_single_event(fce_run_contact_enrichment_job, +5s)
+        │
+        ▼
+[WP-Cron fires fce_run_contact_enrichment_job(contact_id)]
+   • CONSENT GATE: if individual_research_consent = Restricted →
+     status = Restricted, return without API call
+   • status → "Processing"
+   • build system prompt:
+       Apra-grounded research discipline (relevance gate)
+       + admin's active contact context modules
+       + schema instructions (admin-configurable capacity tier values)
+   • build user prompt: contact name, email, employer hint, title
+   • POST https://api.anthropic.com/v1/messages
+        │
+        ▼
+[Parse and validate]
+   • extract JSON object from response
+   • validate each individual_* field against allowed options
+   • strip stray <cite> tags
+        │
+        ▼
+[Write contact]
+   • individual_enrichment_status → "Complete"
+   • individual_enrichment_date → today
+   • individual_enrichment_confidence → from response
+   • 5 output fields populated
+        │
+        ▼
+[Write SubscriberNote]
+   • title: "Contact Research — YYYY-MM-DD"
+   • description: 4-section Markdown → HTML via Parsedown
+   • same-day replace; cross-day appends
+```
+
+If anything fails: `individual_enrichment_status` flips to "Failed" and a clearly-titled "Contact Enrichment Failed" subscriber note is created.
+
 ## Sync paths (no API call)
 
 Two additional surfaces push the company-side cache to contacts without running a fresh enrichment:
@@ -219,6 +264,121 @@ How the organization tends to partner. A foundation's value here is typically Gr
 Claude's read on alignment between the target organization and the priorities you've described in your context modules. **This is the most opinionated field — what "alignment" means is entirely defined by what you put in your context modules.** Without context modules, alignment is just generic mission-fit; with detailed context modules, alignment reflects your specific criteria.
 
 The narrative note's "Alignment assessment" section explains the reasoning behind the score and is more useful than the score alone. Treat the score as a sort key for prospect lists, not a verdict.
+
+---
+
+## Individual contact research fields (v0.7.0+)
+
+A second set of contact fields, written by the contact-side individual research surface. These describe the *person*, not their employer — used for fundraising prospect research, cohort program participant prep, B2B sales / partnership stakeholder research, board recruitment, etc.
+
+The use case is determined by the admin's **contact context modules** (Settings → Contact Context). Without context modules, the research operates generically; with them, the research is shaped to the use case.
+
+Research is grounded in [Apra's Statement of Ethics](https://www.aprahome.org/Resources/Statement-of-Ethics) — restricted to information bearing on the relationship the requesting organization is trying to build, sourced from public records and verified professional context, never aggregated beyond what the relationship justifies.
+
+### Group: Enrichment — Individual Status
+
+### `individual_enrichment_status`
+
+| | |
+|---|---|
+| Type | `select-one` |
+| Allowed values | Not Enriched, Pending, Processing, Complete, Failed, Restricted |
+
+Set by the plugin throughout the enrichment lifecycle. The "Restricted" value is unique to the contact-side surface — set automatically when an enrichment is attempted on a contact whose `individual_research_consent` is "Restricted."
+
+### `individual_enrichment_date`
+
+| | |
+|---|---|
+| Type | `date` |
+| Format | `YYYY-MM-DD` |
+
+Date of last successful contact enrichment. Re-enriching overwrites.
+
+### `individual_enrichment_confidence`
+
+| | |
+|---|---|
+| Type | `select-one` |
+| Allowed values | High, Medium, Low |
+| Fallback | "Low" |
+
+Claude's self-reported confidence in the structured outputs. Individual research has thinner sources than org research, so confidence will skew lower in many cases — that's appropriate. Treat as a hint, not a verdict.
+
+### `individual_research_consent`
+
+| | |
+|---|---|
+| Type | `select-one` |
+| Allowed values | Allowed, Restricted |
+| Default for new contacts | Allowed (matches practitioner standard for fundraising) |
+
+Per-contact opt-out. Admin-set. When "Restricted," the cron job short-circuits before any API call is made; status flips to "Restricted" and no fields, narrative, or notes are written.
+
+This field is the gate for individual research. It does not affect company-side enrichment, since that researches the contact's *employer*, not the contact themselves. To prevent any research touching a contact, restrict consent here AND ensure they have no `company_id` (or accept that their employer's enrichment will mirror to them).
+
+### Group: Enrichment — Individual
+
+### `individual_capacity_tier`
+
+| | |
+|---|---|
+| Type | `select-one` |
+| Allowed values | **Admin-configurable** (Settings → Capacity Tiers) |
+| Default options | Major, Mid, Standard, Unknown |
+| Fallback | "Unknown" |
+
+The contact's tier per the use case the admin defines in their context modules. Default values are donor-flavored; admins running other use cases can rewrite them:
+
+- **Fundraising** (default): Major / Mid / Standard / Unknown
+- **Cohort programs**: Senior Leader / Mid-Career / Emerging / Unknown
+- **B2B sales**: Decision Maker / Influencer / End User / Unknown
+- **Board recruitment**: a relevant governance experience tier
+- **Other use cases**: whatever fits
+
+Order matters: the system prompt instructs Claude to treat the first value as the highest tier and the last as the lowest. Always include "Unknown" (or equivalent fallback) as the final value.
+
+### `individual_alignment`
+
+| | |
+|---|---|
+| Type | `select-one` |
+| Allowed values | Strong, Moderate, Weak, Unknown |
+| Fallback | "Unknown" |
+
+Alignment between this person and the requesting organization's mission per the contact context modules. Same opinionated nature as `org_alignment_score` — what "alignment" means is entirely defined by what's in the context modules.
+
+### `individual_engagement_readiness`
+
+| | |
+|---|---|
+| Type | `select-one` |
+| Allowed values | High, Medium, Low, Unknown |
+| Fallback | "Unknown" |
+
+Current likelihood of receptivity to engagement. Signals that bump this up: recent public activity related to the use case, life events (book launch, retirement, board departure), known recent giving (for fundraising), recently published content (for sales prospecting).
+
+### `individual_prior_relationship`
+
+| | |
+|---|---|
+| Type | `select-one` |
+| Allowed values | Yes, Possible, No, Unknown |
+| Fallback | "Unknown" |
+
+Whether the person has a known prior connection to the requesting organization or its mission — alumni status, prior gift, board overlap, public alignment with the cause, etc. The context modules tell Claude what the requesting organization is, so this only works well when those modules are populated.
+
+### `individual_relevant_signals_present`
+
+| | |
+|---|---|
+| Type | `select-one` |
+| Allowed values | Yes, No, Unknown |
+| Fallback | "Unknown" |
+
+Confidence flag, not a content claim. "Yes" if Claude found verifiable public signals relevant to the use case (giving disclosures for donors, leadership credentials for cohort prep, decision-authority signals for sales). "No" if it searched thoroughly and didn't. "Unknown" if it couldn't search effectively (rare).
+
+Useful for filtering: "show me all contacts where research found something" vs. "contacts where research came up empty."
 
 ---
 

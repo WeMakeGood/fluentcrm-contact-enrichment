@@ -304,6 +304,80 @@ class FCE_Data_Mapper {
 		return trim( $text );
 	}
 
+	/**
+	 * Validate a parsed individual-research payload (from Claude) against
+	 * the allowed options for each contact-side individual_* field.
+	 * Different schema from map() — no native_fields, no array-typed
+	 * outputs (every individual_* field is single-select), capacity
+	 * tier values are admin-configurable.
+	 *
+	 * @param array $parsed
+	 * @return array {
+	 *   individual: array<string, string>  values to write to the contact
+	 *   confidence: string                  high/medium/low for status
+	 *   narrative:  array{personal_context, relevant_background, alignment_assessment, recommended_approach}
+	 *   dropped:    array<int, string>      dropped value reasons
+	 * }
+	 */
+	public static function map_individual( array $parsed ) {
+		$individual = array();
+		$narrative  = array(
+			'personal_context'     => '',
+			'relevant_background'  => '',
+			'alignment_assessment' => '',
+			'recommended_approach' => '',
+		);
+		$dropped = array();
+
+		// Capacity tier — admin-configurable values, validated against
+		// FCE_Field_Registrar::capacity_tier_options().
+		$capacity_value = isset( $parsed['individual_capacity_tier'] ) ? (string) $parsed['individual_capacity_tier'] : '';
+		$capacity_allowed = FCE_Field_Registrar::capacity_tier_options();
+		// Find a sensible fallback — prefer "Unknown" if it's in the list.
+		$capacity_fallback = in_array( 'Unknown', $capacity_allowed, true ) ? 'Unknown' : end( $capacity_allowed );
+		$individual['individual_capacity_tier'] = self::pick_single(
+			$capacity_value,
+			$capacity_allowed,
+			$capacity_fallback,
+			'individual_capacity_tier',
+			$dropped
+		);
+
+		// Fixed-vocabulary fields.
+		$fixed_fields = array(
+			'individual_alignment'                  => array( 'Strong', 'Moderate', 'Weak', 'Unknown' ),
+			'individual_engagement_readiness'       => array( 'High', 'Medium', 'Low', 'Unknown' ),
+			'individual_prior_relationship'         => array( 'Yes', 'Possible', 'No', 'Unknown' ),
+			'individual_relevant_signals_present'   => array( 'Yes', 'No', 'Unknown' ),
+		);
+		foreach ( $fixed_fields as $slug => $allowed ) {
+			$value = isset( $parsed[ $slug ] ) ? (string) $parsed[ $slug ] : '';
+			$individual[ $slug ] = self::pick_single( $value, $allowed, 'Unknown', $slug, $dropped );
+		}
+
+		// Confidence — same as company side.
+		$confidence_allowed = array( 'High', 'Medium', 'Low' );
+		$confidence_value   = isset( $parsed['confidence'] ) ? (string) $parsed['confidence'] : '';
+		$confidence         = self::pick_single( $confidence_value, $confidence_allowed, 'Low', 'confidence', $dropped );
+
+		// Narrative — same defensive cleanup as map() for org research.
+		$source = isset( $parsed['narrative'] ) && is_array( $parsed['narrative'] )
+			? $parsed['narrative']
+			: $parsed;
+		foreach ( array_keys( $narrative ) as $section ) {
+			if ( isset( $source[ $section ] ) && is_string( $source[ $section ] ) ) {
+				$narrative[ $section ] = self::clean_narrative( $source[ $section ] );
+			}
+		}
+
+		return array(
+			'individual' => $individual,
+			'confidence' => $confidence,
+			'narrative'  => $narrative,
+			'dropped'    => $dropped,
+		);
+	}
+
 	// ---------------------------------------------------------------------
 	// Helpers
 	// ---------------------------------------------------------------------

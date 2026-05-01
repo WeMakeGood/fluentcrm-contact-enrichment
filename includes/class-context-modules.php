@@ -100,3 +100,104 @@ class FCE_Context_Modules {
 		update_option( FCE_OPT_CONTEXT_MODS, wp_json_encode( $normalised ), false );
 	}
 }
+
+/**
+ * Contact-side context modules (v0.7.0+). Same shape as the company-side
+ * `FCE_Context_Modules` but stored under a different option key, so
+ * admins can frame company research and individual research separately.
+ *
+ * The framing here drives Claude's understanding of what "relevant"
+ * means for the use case (donor research, cohort prep, sales,
+ * board recruitment). The same machinery serves all use cases — the
+ * differentiator is what the admin writes into these modules.
+ *
+ * @package Fluentcrm_Contact_Enrichment
+ */
+class FCE_Contact_Context_Modules {
+
+	/**
+	 * Returns all stored modules in their original order.
+	 *
+	 * @return array<int, array{title:string,content:string,active:bool,order:int}>
+	 */
+	public static function all() {
+		$raw = get_option( FCE_OPT_CONTACT_MODS, array() );
+
+		if ( is_string( $raw ) ) {
+			$decoded = json_decode( $raw, true );
+			$raw     = is_array( $decoded ) ? $decoded : array();
+		}
+
+		if ( ! is_array( $raw ) ) {
+			return array();
+		}
+
+		$out = array();
+		foreach ( $raw as $i => $module ) {
+			$out[] = array(
+				'title'   => isset( $module['title'] ) ? (string) $module['title'] : '',
+				'content' => isset( $module['content'] ) ? (string) $module['content'] : '',
+				'active'  => ! empty( $module['active'] ),
+				'order'   => isset( $module['order'] ) ? (int) $module['order'] : $i,
+			);
+		}
+
+		usort(
+			$out,
+			static function ( $a, $b ) {
+				return $a['order'] <=> $b['order'];
+			}
+		);
+
+		return $out;
+	}
+
+	/**
+	 * Returns only active modules, in display order.
+	 *
+	 * @return array<int, array{title:string,content:string}>
+	 */
+	public static function active() {
+		$active = array();
+		foreach ( self::all() as $module ) {
+			if ( $module['active'] && '' !== trim( $module['content'] ) ) {
+				$active[] = array(
+					'title'   => $module['title'],
+					'content' => $module['content'],
+				);
+			}
+		}
+		return $active;
+	}
+
+	/**
+	 * Persists the full module list. Caller is expected to have done
+	 * capability + nonce checks already.
+	 *
+	 * @param array $modules
+	 * @return void
+	 */
+	public static function save( array $modules ) {
+		$normalised = array();
+		$order      = 0;
+
+		foreach ( $modules as $module ) {
+			$title   = isset( $module['title'] ) ? sanitize_text_field( wp_unslash( $module['title'] ) ) : '';
+			$content = isset( $module['content'] ) ? wp_kses_post( wp_unslash( $module['content'] ) ) : '';
+			$active  = ! empty( $module['active'] );
+
+			if ( '' === $title && '' === trim( $content ) ) {
+				continue;
+			}
+
+			$normalised[] = array(
+				'title'   => $title,
+				'content' => $content,
+				'active'  => $active,
+				'order'   => $order++,
+			);
+		}
+
+		update_option( FCE_OPT_CONTACT_MODS, wp_json_encode( $normalised ), false );
+	}
+}

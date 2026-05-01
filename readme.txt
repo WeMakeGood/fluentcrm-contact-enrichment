@@ -4,7 +4,7 @@ Tags: fluentcrm, crm, claude, anthropic, enrichment, research
 Requires at least: 5.8
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.6.1
+Stable tag: 0.7.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -82,6 +82,16 @@ The company's Enrichment Status flips to Failed and a note is added describing t
 The Enrichment Status field appears on the company record. FluentCRM does not currently expose extension points for company list columns or segment filters that would let custom company fields appear in those surfaces.
 
 == Changelog ==
+
+= 0.7.0 =
+* Adds individual contact research as a parallel surface to the existing company research. The same plugin now answers two distinct questions: "what kind of organization is this?" (company side, since v0.1.0) and "who is this person, and how should we engage them?" (contact side, new in v0.7.0).
+* Use cases the contact-research surface supports: nonprofit fundraising prospect research, cohort program participant prep, B2B sales / partnership stakeholder research, board recruitment. The framing comes from admin-configurable contact context modules; the plugin doesn't bake in a single use case.
+* Grounded in Apra's Statement of Ethics — Integrity, Accuracy, Accountability, Confidentiality, Source Provenance, and the Relevance principle (research restricted to information bearing on the relationship the requesting organization is trying to build). The system prompt enforces this discipline on every contact enrichment.
+* New contact custom fields: `individual_enrichment_status`, `individual_enrichment_date`, `individual_enrichment_confidence`, `individual_research_consent` (status), plus five research outputs (`individual_capacity_tier`, `individual_alignment`, `individual_engagement_readiness`, `individual_prior_relationship`, `individual_relevant_signals_present`). Capacity tier values are admin-configurable so non-fundraising use cases can rewrite them.
+* New "Individual Enrichment" profile section on the contact, with status display, an Enrich/Re-enrich button, and a link to the most recent research note.
+* Per-contact opt-out via the `individual_research_consent` field (default Allowed). Setting it to Restricted blocks enrichment for that contact; the cron job short-circuits before any API call is made.
+* Two new admin settings tabs: Contact Context (Markdown modules framing the use case) and Capacity Tiers (admin-editable values for the capacity tier field).
+* Output is written as a four-section subscriber note: Personal Context, Relevant Background, Alignment Assessment, Recommended Approach. Same-day re-runs replace the existing note; cross-day re-enrichments preserve historical analyses.
 
 = 0.6.1 =
 * Excludes the 8 org_* contact custom fields from the FluentCRM Company Rollups plugin's configuration UI and computation (when that plugin is also active, version 0.2.0+). Rolling up enrichment values across contacts always returned the same value (since they're mirrored from the company record) and was confusing in the rollup section.

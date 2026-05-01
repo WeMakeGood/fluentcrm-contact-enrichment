@@ -4,7 +4,15 @@ This file briefs future Claude sessions working on this plugin. It is not user d
 
 ## What this plugin does
 
-Adds an "Enrich" button to the FluentCRM company profile. A click schedules a WP-Cron job that calls the Anthropic Messages API with web search, parses a structured JSON response, writes organization-profile fields to every contact whose primary `company_id` matches the company, and stores a four-section narrative note on the company record. The plugin is general-purpose; admins customize it with Markdown context modules in the settings page that are injected into the system prompt.
+The plugin has two parallel research surfaces:
+
+**Company research** (since v0.1.0): an "Enrich" button on the FluentCRM company profile. A click schedules a WP-Cron job that calls the Anthropic Messages API with web search, parses a structured JSON response, writes organization-profile fields to every contact whose primary `company_id` matches the company, and stores a four-section narrative note on the company record.
+
+**Individual contact research** (since v0.7.0): an "Enrich" button on the FluentCRM contact profile, scheduling a parallel WP-Cron job that researches the *person* (not their employer). Used for fundraising prospect research, cohort program participant prep, B2B stakeholder research, board recruitment. Apra-grounded research discipline; per-contact consent gate; subscriber note as output.
+
+Both surfaces share the same Claude API client, JSON parsing, citation handling, and Markdown-to-HTML rendering. They have separate cron hooks, separate context modules (different framings for org vs. individual research), separate admin settings tabs, and separate result types (company note vs. subscriber note).
+
+The plugin is general-purpose; admins customize each surface with Markdown context modules in the settings page that are injected into the respective system prompts.
 
 ## Why these architectural decisions
 
@@ -70,6 +78,22 @@ Use `web_search_20250305`. The newer `web_search_20260209` adds dynamic filterin
 ### API key encryption
 
 Stored AES-256-CBC encrypted with a key derived from WP auth salts (`hash('sha256', AUTH_KEY . SECURE_AUTH_KEY . AUTH_SALT . 'fluentcrm-contact-enrichment', true)`). The stored value starts with `fce1:` so the version is identifiable for future migrations. A server compromise that reads `wp-config.php` can decrypt — that's the realistic threat model for WP plugins, and we don't claim to defend beyond it. The save path only updates the option when a non-empty value is posted, so resubmitting the form without retyping doesn't blank the stored key.
+
+### Individual contact research surface (v0.7.0)
+
+A parallel research path that targets the contact (not their employer). Use cases are framed by the admin's contact context modules — fundraising prospect research, cohort prep, sales prospecting, board recruitment all share the same machinery, just different framing.
+
+Three architectural decisions worth knowing:
+
+1. **Apra-grounded discipline, not just generic research.** The contact-side system prompt (`FCE_Enrichment_Job::contact_research_discipline()`) cites the Apra Statement of Ethics principles verbatim — Integrity, Accuracy, Accountability, Confidentiality, Source Provenance — and adds an explicit *relevance gate*: "research is restricted to information bearing on the relationship the requesting organization is trying to build." The gate's content is shaped by the contact context modules. This is stricter than the company-side prompt because individual research has higher privacy stakes.
+
+2. **Per-contact consent gate.** Every contact has an `individual_research_consent` field (Allowed / Restricted, default Allowed). `FCE_Enrichment_Job::run_contact()` checks the value before doing anything else and short-circuits with status=Restricted if the contact has opted out. The check happens inside the cron handler (not just the ajax handler) so a race between click and cron-fire still respects the opt-out. Verified live: a Restricted run returns in <1 second with no API call made.
+
+3. **Capacity tier is admin-configurable.** The default values are donor-flavored (Major / Mid / Standard / Unknown), but the "Capacity Tiers" admin settings tab lets admins rewrite them per use case (cohort programs might use Senior Leader / Mid-Career / Emerging / Unknown; B2B might use Decision Maker / Influencer / End User / Unknown). Same admin pattern as `org_focus_areas` — list of strings, syncs into the field definition's options at save time. The system prompt reads the configured values at runtime so the schema is dynamic.
+
+The 9 individual_* fields (4 status/consent + 5 outputs) live only on the contact — no mirroring to anywhere. The contact-side rollups exclusion already covers them via `all_contact_field_slugs()`. The output is a `SubscriberNote` titled "Contact Research — YYYY-MM-DD" with the same four-section narrative structure as company research, but framed for individuals (Personal Context / Relevant Background / Alignment Assessment / Recommended Approach).
+
+A bulk-resync Danger Zone variant for individual research is **deliberately not built**. Bulk individual research at scale would burn through API budget without a clear use case, and consent-checking adds complexity that doesn't pay off without evidence. Revisit if there's demand.
 
 ### Sync buttons (v0.6.0)
 
@@ -147,7 +171,8 @@ The settings tab "Focus Areas" stores its option list in `fce_focus_area_options
 - `includes/class-contact-sync.php` — push company-side cached values to linked contacts (per-company + bulk paths)
 - `includes/class-enrichment-job.php` — WP-Cron handler, the full pipeline
 - `includes/class-admin-settings.php` — Settings → Contact Enrichment, three tabs
-- `includes/class-company-section.php` — profile section + Enrich button + ajax
+- `includes/class-company-section.php` — company profile section + Enrich button + Sync to Contacts + ajax
+- `includes/class-contact-section.php` — contact profile section + Enrich button + ajax (v0.7.0+)
 - `vendor/erusev/parsedown/` — bundled Markdown→HTML library
 - `docs/fluentcrm-enrichment-research.md` — pre-implementation reconnaissance findings; FluentCRM internal APIs, Anthropic API mechanics, decisions made during the build, and the prompt-caching / Files API analysis deferred for v0.1.0
 - `docs/fields-reference.md` — operational documentation for the 11 custom fields the plugin creates: pipeline diagram, per-field allowed values + meaning + fallbacks, where data is stored, how to segment

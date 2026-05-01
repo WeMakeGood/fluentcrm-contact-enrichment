@@ -12,6 +12,7 @@ class FCE_Enrichment_Job {
 
 	public static function register_hooks() {
 		add_action( FCE_CRON_HOOK, array( __CLASS__, 'run' ), 10, 1 );
+		add_action( FCE_CRON_CONTACT, array( __CLASS__, 'run_contact' ), 10, 1 );
 	}
 
 	/**
@@ -79,6 +80,91 @@ class FCE_Enrichment_Job {
 			);
 		} catch ( \Throwable $e ) {
 			self::fail( $company, 'unhandled error: ' . $e->getMessage() );
+		}
+	}
+
+	/**
+	 * Cron handler for contact-side individual research (v0.7.0+).
+	 *
+	 * Pipeline parallels run() but with stricter ethics framing
+	 * (Apra-grounded discipline, relevance gate, source-quality
+	 * guidance), a different schema (individual_* fields), and a
+	 * subscriber note instead of a company note. Critically: this
+	 * checks the contact's individual_research_consent value before
+	 * spending any API budget; "Restricted" short-circuits with a
+	 * status flip and no research call.
+	 *
+	 * @param int $contact_id
+	 * @return void
+	 */
+	public static function run_contact( $contact_id ) {
+		$contact_id = (int) $contact_id;
+		if ( $contact_id <= 0 ) {
+			self::log( 'invalid contact_id passed to job' );
+			return;
+		}
+
+		if ( ! class_exists( '\\FluentCrm\\App\\Models\\Subscriber' ) ) {
+			self::log( 'FluentCRM not loaded — cannot run contact enrichment for ' . $contact_id );
+			return;
+		}
+
+		$contact = \FluentCrm\App\Models\Subscriber::find( $contact_id );
+		if ( ! $contact ) {
+			self::log( 'contact not found: ' . $contact_id );
+			return;
+		}
+
+		// Consent gate: respect Apra's confidentiality principle and the
+		// admin's per-contact opt-out flag. If the contact's consent is
+		// Restricted, set status accordingly and bail before spending
+		// any tokens or making any external call.
+		$cf      = $contact->custom_fields();
+		$consent = isset( $cf[ FCE_IND_CONSENT ] ) ? (string) $cf[ FCE_IND_CONSENT ] : 'Allowed';
+		if ( 'Restricted' === $consent ) {
+			$contact->syncCustomFieldValues( array( FCE_IND_STATUS => 'Restricted' ), false );
+			self::log( sprintf( 'contact %d enrichment skipped: research_consent=Restricted', $contact_id ) );
+			return;
+		}
+
+		self::set_contact_status( $contact, 'Processing' );
+
+		try {
+			$system = self::build_contact_system_prompt();
+			$user   = self::build_contact_user_prompt( $contact );
+
+			$result = FCE_Claude_Client::research( $system, $user );
+			if ( null !== $result['error'] ) {
+				self::fail_contact( $contact, $result['error'] );
+				return;
+			}
+
+			$parsed = FCE_Data_Mapper::extract_json( $result['text'] );
+			if ( null === $parsed ) {
+				self::fail_contact(
+					$contact,
+					__( 'Claude response did not contain a parseable JSON object.', 'fluentcrm-contact-enrichment' ),
+					$result['text']
+				);
+				return;
+			}
+
+			$mapped = FCE_Data_Mapper::map_individual( $parsed );
+
+			self::write_contact( $contact, $mapped );
+			self::create_contact_research_note( $contact, $mapped, $result['search_count'] );
+
+			self::log(
+				sprintf(
+					'contact enrichment complete for contact %d (email=%s): %d searches used, %d values dropped',
+					$contact->id,
+					(string) $contact->email,
+					(int) $result['search_count'],
+					count( $mapped['dropped'] )
+				)
+			);
+		} catch ( \Throwable $e ) {
+			self::fail_contact( $contact, 'unhandled error: ' . $e->getMessage() );
 		}
 	}
 
@@ -285,6 +371,177 @@ SCHEMA;
 		}
 		$lines[] = '';
 		$lines[] = 'Return only the JSON object inside <json>...</json> tags after your research is complete.';
+		return implode( "\n", $lines );
+	}
+
+	// ---------------------------------------------------------------------
+	// Contact-side prompt builders (v0.7.0+)
+	// ---------------------------------------------------------------------
+
+	/**
+	 * Build the contact-research system prompt. Three layers:
+	 *   1. Apra-grounded research discipline (stricter than the org
+	 *      preamble — adds the Confidentiality / Relevance / Source
+	 *      Provenance / Privacy principles).
+	 *   2. Active contact context modules (admin's framing for the
+	 *      use case: donor research, cohort prep, sales, board, etc.).
+	 *   3. Schema instructions with admin-configurable capacity tier
+	 *      options.
+	 *
+	 * @return string
+	 */
+	private static function build_contact_system_prompt() {
+		$base = self::contact_research_discipline();
+
+		$modules = FCE_Contact_Context_Modules::active();
+		$module_text = '';
+		foreach ( $modules as $module ) {
+			$module_text .= "\n\n---\n\n";
+			if ( '' !== $module['title'] ) {
+				$module_text .= "## " . $module['title'] . "\n\n";
+			}
+			$module_text .= $module['content'];
+		}
+
+		$schema = self::contact_schema_instructions();
+
+		return $base . $module_text . "\n\n---\n\n" . $schema;
+	}
+
+	/**
+	 * Apra-grounded research discipline applied to every contact
+	 * enrichment regardless of admin context modules. The principles
+	 * are about *how* to research a person, not what to do with the
+	 * findings — they apply equally to fundraising prospect research,
+	 * cohort program participant prep, B2B sales research, and board
+	 * recruitment.
+	 *
+	 * @return string
+	 */
+	private static function contact_research_discipline() {
+		return <<<PROMPT
+You are an individual-contact researcher operating to professional standards adapted from Apra (the Association of Prospect Researchers for Advancement). Your job is to research the person described in the user message and return structured data plus a narrative summary, following the schema below.
+
+Research discipline:
+
+- **Integrity & Honesty.** Use only legitimate public sources. Be honest about what you find versus what you infer. Don't fabricate, don't aggregate beyond what the relationship justifies, don't surveil.
+- **Accuracy & Competence.** Cite sources inline in narrative sections. Make the source visible in the language ("their LinkedIn profile shows…", "the Form 4 filed in March 2025 reports…", "their employer's leadership page lists them as…"). When you can only find self-reported information, say so.
+- **Relevance.** Apra's core constraint: research is restricted to information bearing on the relationship the requesting organization is trying to build. Read the context modules below to understand what the requesting organization considers relevant for THEIR use case (fundraising research, cohort prep, sales prospecting, board recruitment) and confine your research accordingly. Even if a piece of information is findable, don't include it unless it bears on that use case. Personal life details, family information, and private-residence specifics are out of scope for any of these use cases.
+- **Confidentiality & Privacy.** Don't research what wouldn't be appropriate in a face-to-face professional conversation. If you find sensitive information that doesn't bear on the use case, omit it. The Apra Social Media Responsibility principle applies: do not unreasonably intrude on an individual's privacy. LinkedIn profile content and other professional public information is fair game; personal social media beyond professional context is not.
+- **Source Provenance.** Track and report where each piece of data came from. Apra's Data Standards principle: "ensure all information is legally obtained and publicly available from reliable sources."
+- **Sources to prefer:** SEC EDGAR insider filings (executives only); FEC contribution data; IRS Form 990 schedules listing donors; foundation board and trustee rosters; capital campaign donor recognition (public donor walls, named gifts, annual reports); employer leadership/about pages with verified bios; LinkedIn profile pages (career history, board service, volunteering); published interviews, books, op-eds, conference talks; industry awards; news coverage in professional context.
+- **Sources to AVOID:** personal-data aggregator sites (Spokeo, BeenVerified, etc.); reverse-lookup services; social media content that's not professional in nature; anything resembling surveillance or aggregation beyond what a relevant relationship would justify; private real-estate or family records.
+- **Mark inferences as inferences.** If you reason from incomplete information, make the inferential step visible in the language rather than stating an inference as fact. Confidence calibration matters more here than for org research because individual research has thinner sources and higher stakes.
+- **When information cannot be reasonably determined, say so.** Use "Unknown" for structured fields and name the gap explicitly in the narrative. Most individuals are not public figures; "Unknown" will be the honest answer for many fields, especially for non-major-donor / non-executive subjects.
+- **Before assigning the alignment score, weigh more than the first framing that comes to mind.** The alignment dimensions in the context modules below typically pull in different directions for any individual; the score should reflect that tension honestly rather than picking the cleanest narrative.
+
+PROMPT;
+	}
+
+	/**
+	 * The contact-side schema instructions. Capacity tier options are
+	 * admin-configurable; the other four structured fields use fixed
+	 * vocabularies matching the field registrar.
+	 *
+	 * @return string
+	 */
+	private static function contact_schema_instructions() {
+		$capacity_options = self::format_options( FCE_Field_Registrar::capacity_tier_options() );
+		$align_options    = self::format_options( array( 'Strong', 'Moderate', 'Weak', 'Unknown' ) );
+		$ready_options    = self::format_options( array( 'High', 'Medium', 'Low', 'Unknown' ) );
+		$prior_options    = self::format_options( array( 'Yes', 'Possible', 'No', 'Unknown' ) );
+		$signals_options  = self::format_options( array( 'Yes', 'No', 'Unknown' ) );
+		$confidence_opts  = '"High" | "Medium" | "Low"';
+
+		return <<<SCHEMA
+Return your final answer as a JSON object wrapped in <json>...</json> tags. Use exactly these keys:
+
+{
+  "individual_capacity_tier": "...",
+  "individual_alignment": "...",
+  "individual_engagement_readiness": "...",
+  "individual_prior_relationship": "...",
+  "individual_relevant_signals_present": "...",
+  "confidence": "...",
+  "narrative": {
+    "personal_context": "...",
+    "relevant_background": "...",
+    "alignment_assessment": "...",
+    "recommended_approach": "..."
+  }
+}
+
+Allowed values:
+
+- individual_capacity_tier: {$capacity_options}
+- individual_alignment: {$align_options}
+- individual_engagement_readiness: {$ready_options}
+- individual_prior_relationship: {$prior_options}
+- individual_relevant_signals_present: {$signals_options}
+- confidence: {$confidence_opts}
+
+Field meanings:
+
+- **individual_capacity_tier**: the person's tier per the use case defined in the context modules. The vocabulary is set by the requesting organization — for fundraising it's typically Major / Mid / Standard / Unknown (capacity for major-gift consideration); for other use cases it might mean leadership tier, decision-making authority, or another dimension. Use only the listed values; default to "Unknown" if you cannot reasonably determine.
+- **individual_alignment**: alignment between this person and the requesting organization's mission per the context modules.
+- **individual_engagement_readiness**: current likelihood of receptivity (recent activity, life events, public signals).
+- **individual_prior_relationship**: whether there is a known connection between this person and the requesting organization or its mission (alumni, prior gift, board overlap, public alignment, etc.).
+- **individual_relevant_signals_present**: confidence flag — Yes if you found verifiable public signals relevant to the use case (giving disclosures for donors, leadership credentials for cohort prep, decision-authority signals for sales); No if you searched thoroughly and didn't; Unknown if you couldn't search effectively.
+
+If you cannot determine a value with reasonable confidence, use "Unknown" — never fabricate. Most contacts are not public figures; "Unknown" is the honest answer for many fields and many people.
+
+The narrative sections should be plain Markdown. Each section is one to three short paragraphs. Cite sources inline in the prose; do not include a separate references list.
+
+- **personal_context**: career, current role, institutional affiliations, public profile. Sourced inline.
+- **relevant_background**: context bearing on the use case as defined by the context modules. For donor research: known giving, board service, charitable involvement, public recognition. For cohort prep: leadership experience, prior coursework, current professional challenges. For sales: decision-making authority, organizational role, buying signals. Sourced inline.
+- **alignment_assessment**: fit with the requesting organization's mission and use case per the context modules. Name what fits and what does not. Be honest about how strong the alignment evidence actually is.
+- **recommended_approach**: practical path to engagement, framed appropriately for the use case. For fundraising: cultivation sequence and timing. For cohort prep: what the program leader should know going in. For sales: who else to engage and what to lead with. For board recruitment: cultivation and vetting path.
+
+When citing sources inside the narrative sections, use Markdown link syntax: `[the cited claim](https://source-url)`. Do NOT use `<cite>` tags inside the JSON string values — those tags don't render in the destination CRM note.
+
+Critical reminder: this research will be reviewed by a human professional. Honest "Unknown" answers, named information gaps, and explicit hedges are more useful than confident fabrications. Apra's accuracy principle is the load-bearing one for this work.
+SCHEMA;
+	}
+
+	/**
+	 * @param object $contact FluentCrm\App\Models\Subscriber instance
+	 * @return string
+	 */
+	private static function build_contact_user_prompt( $contact ) {
+		$name_parts = array_filter( array(
+			(string) ( $contact->first_name ?? '' ),
+			(string) ( $contact->last_name ?? '' ),
+		) );
+		$full_name  = implode( ' ', $name_parts );
+
+		$lines = array(
+			'Research this individual contact and return structured data plus a narrative summary, per the schema in the system prompt.',
+			'',
+			'Name: ' . ( '' !== $full_name ? $full_name : '(no name on file)' ),
+			'Email: ' . (string) $contact->email,
+		);
+
+		// Hint with employer context if the contact is linked to a company —
+		// helps Claude disambiguate similarly-named individuals.
+		if ( ! empty( $contact->company_id ) && class_exists( '\\FluentCrm\\App\\Models\\Company' ) ) {
+			$company = \FluentCrm\App\Models\Company::find( (int) $contact->company_id );
+			if ( $company ) {
+				$lines[] = 'Employer: ' . (string) $company->name;
+				if ( ! empty( $company->website ) ) {
+					$lines[] = 'Employer website: ' . (string) $company->website;
+				}
+			}
+		}
+
+		// Pass any contact-level context the admin has set (job_title is
+		// a common FluentCRM field).
+		if ( ! empty( $contact->job_title ) ) {
+			$lines[] = 'Title: ' . (string) $contact->job_title;
+		}
+
+		$lines[] = '';
+		$lines[] = 'Return only the JSON object inside <json>...</json> tags after your research is complete.';
+
 		return implode( "\n", $lines );
 	}
 
@@ -553,6 +810,194 @@ SCHEMA;
 
 	// ---------------------------------------------------------------------
 	// Failure path
+	// ---------------------------------------------------------------------
+
+	// ---------------------------------------------------------------------
+	// Contact-side result writers (v0.7.0+)
+	// ---------------------------------------------------------------------
+
+	/**
+	 * Update the contact's individual_* enrichment fields with the
+	 * mapped output values, status=Complete, today's date, and the
+	 * confidence value from the response. Single syncCustomFieldValues
+	 * call so hooks fire correctly.
+	 *
+	 * @param object $contact
+	 * @param array  $mapped  Result of FCE_Data_Mapper::map_individual()
+	 * @return void
+	 */
+	private static function write_contact( $contact, array $mapped ) {
+		$values = array_merge(
+			$mapped['individual'],
+			array(
+				FCE_IND_STATUS     => 'Complete',
+				FCE_IND_DATE       => current_time( 'Y-m-d' ),
+				FCE_IND_CONFIDENCE => isset( $mapped['confidence'] ) && '' !== $mapped['confidence']
+					? $mapped['confidence']
+					: 'Low',
+			)
+		);
+		$contact->syncCustomFieldValues( $values, false );
+	}
+
+	/**
+	 * Flip the contact's individual_enrichment_status. Used for the
+	 * Pending → Processing → Complete/Failed/Restricted lifecycle.
+	 *
+	 * @param object $contact
+	 * @param string $status
+	 * @return void
+	 */
+	private static function set_contact_status( $contact, $status ) {
+		$contact->syncCustomFieldValues( array( FCE_IND_STATUS => $status ), false );
+	}
+
+	/**
+	 * Create a "Contact Research — YYYY-MM-DD" subscriber note. Same-day
+	 * replacement: if today's research note already exists for this
+	 * contact, update in place rather than appending. Cross-day
+	 * re-enrichments preserve historical analyses.
+	 *
+	 * @param object $contact
+	 * @param array  $mapped
+	 * @param int    $search_count
+	 * @return void
+	 */
+	private static function create_contact_research_note( $contact, array $mapped, $search_count ) {
+		$markdown = self::format_contact_note_markdown( $mapped, $search_count );
+		$html     = self::markdown_to_html( $markdown );
+
+		$data = array(
+			'subscriber_id' => (int) $contact->id,
+			'type'          => 'note',
+			'title'         => sprintf(
+				/* translators: %s: ISO date */
+				__( 'Contact Research — %s', 'fluentcrm-contact-enrichment' ),
+				current_time( 'Y-m-d' )
+			),
+			'description'   => $html,
+			'created_at'    => current_time( 'mysql' ),
+		);
+
+		if ( class_exists( '\\FluentCrm\\App\\Services\\Sanitize' ) ) {
+			$data = \FluentCrm\App\Services\Sanitize::contactNote( $data );
+		}
+
+		$existing = self::find_todays_contact_note( (int) $contact->id );
+		if ( $existing ) {
+			$existing->fill( array(
+				'description' => $data['description'],
+				'created_at'  => $data['created_at'],
+			) )->save();
+			do_action( 'fluent_crm/subscriber_note_updated', $existing, $contact, $data );
+			return;
+		}
+
+		$note = \FluentCrm\App\Models\SubscriberNote::create( $data );
+		do_action( 'fluent_crm/subscriber_note_added', $note, $contact, $data );
+	}
+
+	/**
+	 * Look for a "Contact Research — <today>" note on this contact.
+	 * Matches by title prefix so manually-added admin notes don't get
+	 * mistaken for enrichment output.
+	 *
+	 * @param int $contact_id
+	 * @return object|null
+	 */
+	private static function find_todays_contact_note( $contact_id ) {
+		if ( ! class_exists( '\\FluentCrm\\App\\Models\\SubscriberNote' ) ) {
+			return null;
+		}
+		$today_title = sprintf(
+			/* translators: %s: ISO date */
+			__( 'Contact Research — %s', 'fluentcrm-contact-enrichment' ),
+			current_time( 'Y-m-d' )
+		);
+		return \FluentCrm\App\Models\SubscriberNote::where( 'subscriber_id', $contact_id )
+			->where( 'title', $today_title )
+			->orderBy( 'id', 'desc' )
+			->first();
+	}
+
+	/**
+	 * @param array $mapped
+	 * @param int   $search_count
+	 * @return string
+	 */
+	private static function format_contact_note_markdown( array $mapped, $search_count ) {
+		$n = $mapped['narrative'];
+
+		$body  = "## Personal context\n\n" . self::or_placeholder( $n['personal_context'] ) . "\n\n";
+		$body .= "## Relevant background\n\n" . self::or_placeholder( $n['relevant_background'] ) . "\n\n";
+		$body .= "## Alignment assessment\n\n" . self::or_placeholder( $n['alignment_assessment'] ) . "\n\n";
+		$body .= "## Recommended approach\n\n" . self::or_placeholder( $n['recommended_approach'] ) . "\n";
+
+		if ( ! empty( $mapped['dropped'] ) ) {
+			$body .= "\n---\n\n*Notes for the field admin: " . count( $mapped['dropped'] ) . ' value(s) returned by Claude were not in the allowed options list and were dropped: ' . implode( '; ', $mapped['dropped'] ) . ".*\n";
+		}
+
+		$body .= "\n*Generated using " . (int) $search_count . ' web search' . ( 1 === (int) $search_count ? '' : 'es' ) . ".*\n";
+
+		return $body;
+	}
+
+	/**
+	 * Failure path for contact enrichment. Mirrors fail() but writes
+	 * to the contact's individual_enrichment_status and creates a
+	 * subscriber note (not company note).
+	 *
+	 * @param object $contact
+	 * @param string $error
+	 * @param string $raw_text  Optional raw response for diagnostics.
+	 * @return void
+	 */
+	private static function fail_contact( $contact, $error, $raw_text = '' ) {
+		self::log(
+			sprintf( 'contact enrichment failed for contact %d (email=%s): %s', $contact->id, (string) $contact->email, $error )
+		);
+
+		self::set_contact_status( $contact, 'Failed' );
+
+		$markdown  = "## Contact enrichment failed\n\n";
+		$markdown .= "**Error:** " . $error . "\n\n";
+		$markdown .= "Run again from the contact profile when ready.\n";
+
+		if ( '' !== $raw_text ) {
+			$markdown .= "\n---\n\n";
+			$markdown .= "<details><summary>Raw response</summary>\n\n";
+			$markdown .= "```\n" . substr( $raw_text, 0, 4000 ) . "\n```\n";
+			$markdown .= "</details>\n";
+		}
+
+		$html = self::markdown_to_html( $markdown );
+
+		$data = array(
+			'subscriber_id' => (int) $contact->id,
+			'type'          => 'note',
+			'title'         => sprintf(
+				/* translators: %s: ISO date */
+				__( 'Contact Enrichment Failed — %s', 'fluentcrm-contact-enrichment' ),
+				current_time( 'Y-m-d' )
+			),
+			'description'   => $html,
+			'created_at'    => current_time( 'mysql' ),
+		);
+
+		if ( class_exists( '\\FluentCrm\\App\\Services\\Sanitize' ) ) {
+			$data = \FluentCrm\App\Services\Sanitize::contactNote( $data );
+		}
+
+		try {
+			$note = \FluentCrm\App\Models\SubscriberNote::create( $data );
+			do_action( 'fluent_crm/subscriber_note_added', $note, $contact, $data );
+		} catch ( \Throwable $e ) {
+			self::log( 'failed to write contact failure note: ' . $e->getMessage() );
+		}
+	}
+
+	// ---------------------------------------------------------------------
+	// Company-side failure path (kept name `fail` for backward compatibility)
 	// ---------------------------------------------------------------------
 
 	/**

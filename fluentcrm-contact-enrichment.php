@@ -7,7 +7,7 @@
  * Author URI:      https://wemakegood.org
  * Text Domain:     fluentcrm-contact-enrichment
  * Domain Path:     /languages
- * Version:         0.6.1
+ * Version:         0.7.0
  * License:         GPL-2.0-or-later
  * License URI:     https://www.gnu.org/licenses/gpl-2.0.html
  * Requires Plugins: fluent-crm
@@ -17,34 +17,48 @@
 
 defined( 'ABSPATH' ) || exit;
 
-const FCE_VERSION = '0.6.1';
+const FCE_VERSION = '0.7.0';
 
 const FCE_OPT_API_KEY        = 'fce_api_key';
 const FCE_OPT_MODEL          = 'fce_model';
 const FCE_OPT_MAX_SEARCHES   = 'fce_max_searches';
 const FCE_OPT_CONTEXT_MODS   = 'fce_context_modules';
 const FCE_OPT_FOCUS_AREAS    = 'fce_focus_area_options';
+const FCE_OPT_CONTACT_MODS   = 'fce_contact_context_modules';
+const FCE_OPT_CAPACITY_TIERS = 'fce_capacity_tier_options';
 
 const FCE_MENU_SLUG          = 'fluentcrm-contact-enrichment';
 const FCE_SECTION_KEY        = 'fce_enrichment';
+const FCE_CONTACT_SECTION    = 'fce_contact_enrichment';
 
 const FCE_CRON_HOOK          = 'fce_run_enrichment_job';
+const FCE_CRON_CONTACT       = 'fce_run_contact_enrichment_job';
 const FCE_AJAX_TRIGGER       = 'fce_trigger_enrichment';
+const FCE_AJAX_CONTACT       = 'fce_trigger_contact_enrichment';
 const FCE_AJAX_SYNC          = 'fce_sync_company_to_contacts';
 
 const FCE_NONCE_SETTINGS     = 'fce_save_settings';
 const FCE_NONCE_TRIGGER      = 'fce_trigger_enrichment_nonce';
+const FCE_NONCE_CONTACT      = 'fce_trigger_contact_enrichment_nonce';
 const FCE_NONCE_SYNC         = 'fce_sync_nonce';
 const FCE_NONCE_BULK_RESYNC  = 'fce_bulk_resync_nonce';
 
-// Field slugs — referenced from registrar, mapper, and section render.
+// Company-side field slugs.
 const FCE_FIELD_STATUS       = 'enrichment_status';
 const FCE_FIELD_DATE         = 'enrichment_date';
 const FCE_FIELD_CONFIDENCE   = 'enrichment_confidence';
 
+// Contact-side individual-research field slugs.
+const FCE_IND_STATUS         = 'individual_enrichment_status';
+const FCE_IND_DATE           = 'individual_enrichment_date';
+const FCE_IND_CONFIDENCE     = 'individual_enrichment_confidence';
+const FCE_IND_CONSENT        = 'individual_research_consent';
+
 const FCE_GROUP_COMPANY      = 'Enrichment';
 const FCE_GROUP_ORG_PROFILE  = 'Enrichment — Org Profile';
 const FCE_GROUP_ALIGNMENT    = 'Enrichment — Alignment';
+const FCE_GROUP_INDIVIDUAL   = 'Enrichment — Individual';
+const FCE_GROUP_IND_STATUS   = 'Enrichment — Individual Status';
 
 const FCE_CAPABILITY         = 'manage_options';
 
@@ -60,6 +74,7 @@ require_once FCE_PLUGIN_DIR . 'includes/class-contact-sync.php';
 require_once FCE_PLUGIN_DIR . 'includes/class-enrichment-job.php';
 require_once FCE_PLUGIN_DIR . 'includes/class-admin-settings.php';
 require_once FCE_PLUGIN_DIR . 'includes/class-company-section.php';
+require_once FCE_PLUGIN_DIR . 'includes/class-contact-section.php';
 
 /**
  * Activation: register all custom fields. FluentCRM may not be active at the
@@ -82,4 +97,5 @@ function fce_bootstrap() {
 	FCE_Enrichment_Job::register_hooks();
 	FCE_Admin_Settings::register_hooks();
 	FCE_Company_Section::register_hooks();
+	FCE_Contact_Section::register_hooks();
 }

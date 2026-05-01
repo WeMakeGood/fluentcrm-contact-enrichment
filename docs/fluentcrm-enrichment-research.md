@@ -443,6 +443,19 @@ Four sections, framed generically so they apply across use cases:
 - **Same-day note replacement** mirrors the company-side behavior.
 - **No mirroring to other surfaces** (unlike org → contact mirroring) — the contact's enrichment lives only on the contact.
 
+## Considered and rejected: conditionally hiding org_* fields on contacts without a company
+
+Surfaced during v0.7.0 design. The thinking: a contact with no `company_id` has empty org_* fields, which clutter the contact's "Custom Profile Data" sidebar. Could we hide them just for those contacts?
+
+Two reasons not to:
+
+1. **`fluent_crm/admin_vars` fires once at admin pageload, not per contact view.** The Vue admin localizes the field list once and routes between contacts client-side; the PHP filter has no per-contact context. So the filter can only do "hide for everyone" or "show for everyone."
+2. **Hiding for everyone breaks segmentation.** The `org_*` fields exist on the contact side (rather than only the company side) specifically so FluentCRM's contact segment builder can use them. Removing them from `admin_vars` removes them from the segment builder filter chips and the list-view custom-column dropdown — same regression we corrected in v0.5.1. The duplication-on-empty-contacts cost is real but small; the segment-builder cost would be much larger.
+
+A clean implementation would require either rendering org_* values in a plugin-controlled contact profile section (with the regular sidebar filtered) or hooking into FluentCRM's Vue admin to gate rendering client-side. The first is doable as a future feature; the second isn't viable without forking the Vue source.
+
+For now: the org_* fields appear in the sidebar for every contact, populated when the contact has an enriched company association and empty otherwise. The empty-fields-on-no-company case is accepted clutter.
+
 ## Future consideration: prompt caching and Files API
 
 Investigated during the v0.1.0 build but deliberately deferred to keep the initial release small. Recording the analysis here so future work has a starting point and doesn't have to redo the recon.
