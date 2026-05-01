@@ -12,21 +12,27 @@ defined( 'ABSPATH' ) || exit;
 class FCE_Data_Mapper {
 
 	/**
-	 * Single-select fields Claude returns directly, with their fallback
-	 * when the response is missing or not in the allowed list.
+	 * Org-side single-select fields Claude returns directly, with their
+	 * fallback when the response is missing or not in the allowed list.
+	 * Used only by map() (the org-research mapper); map_individual()
+	 * doesn't need them because individual_* fields use a different
+	 * shape and pattern.
 	 *
 	 * `org_sector` is intentionally absent — it's derived from
 	 * `native_fields.linkedin_industry` in map_native_fields() so the
 	 * contact-side and company-side industry data share one vocabulary.
 	 */
-	const SINGLE_SELECT_FALLBACKS = array(
+	const ORG_SINGLE_SELECT_FALLBACKS = array(
 		'org_type'            => 'Other',
 		'org_employees'       => 'Unknown',
 		'org_revenue'         => 'Unknown',
 		'org_alignment_score' => 'Unknown',
 	);
 
-	const MULTI_SELECT_FIELDS = array(
+	/**
+	 * Org-side multi-select fields. Used only by map().
+	 */
+	const ORG_MULTI_SELECT_FIELDS = array(
 		'org_geo_scope',
 		'org_focus_areas',
 		'org_partnership_models',
@@ -101,13 +107,13 @@ class FCE_Data_Mapper {
 
 		$contact_fields = self::index_by_slug( FCE_Field_Registrar::contact_field_definitions() );
 
-		foreach ( self::SINGLE_SELECT_FALLBACKS as $slug => $fallback ) {
+		foreach ( self::ORG_SINGLE_SELECT_FALLBACKS as $slug => $fallback ) {
 			$value           = isset( $parsed[ $slug ] ) ? (string) $parsed[ $slug ] : '';
 			$allowed         = self::options_for( $contact_fields, $slug );
 			$contact[ $slug ] = self::pick_single( $value, $allowed, $fallback, $slug, $dropped );
 		}
 
-		foreach ( self::MULTI_SELECT_FIELDS as $slug ) {
+		foreach ( self::ORG_MULTI_SELECT_FIELDS as $slug ) {
 			$values          = isset( $parsed[ $slug ] ) ? (array) $parsed[ $slug ] : array();
 			$allowed         = self::options_for( $contact_fields, $slug );
 			$contact[ $slug ] = self::pick_multi( $values, $allowed, $slug, $dropped );

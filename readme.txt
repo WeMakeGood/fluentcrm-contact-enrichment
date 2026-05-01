@@ -4,7 +4,7 @@ Tags: fluentcrm, crm, claude, anthropic, enrichment, research
 Requires at least: 5.8
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.7.0
+Stable tag: 0.7.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -82,6 +82,9 @@ The company's Enrichment Status flips to Failed and a note is added describing t
 The Enrichment Status field appears on the company record. FluentCRM does not currently expose extension points for company list columns or segment filters that would let custom company fields appear in those surfaces.
 
 == Changelog ==
+
+= 0.7.1 =
+* Internal cleanup, no user-facing changes. Removed dead `cited_text` plumbing from the Claude client (an early citation-handling experiment that was never wired into anything) and clarified the org-side mapper's constants (`ORG_SINGLE_SELECT_FALLBACKS`, `ORG_MULTI_SELECT_FIELDS`) so they don't mislead about the contact-side mapper.
 
 = 0.7.0 =
 * Adds individual contact research as a parallel surface to the existing company research. The same plugin now answers two distinct questions: "what kind of organization is this?" (company side, since v0.1.0) and "who is this person, and how should we engage them?" (contact side, new in v0.7.0).
