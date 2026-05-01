@@ -2,12 +2,12 @@
 /**
  * Plugin Name:     FluentCRM Contact Enrichment
  * Plugin URI:      https://github.com/WeMakeGood/fluentcrm-contact-enrichment
- * Description:     Enriches FluentCRM company records using the Claude API. Researches the organization, writes structured org-profile fields to all linked contacts, and stores a narrative research note on the company.
+ * Description:     AI-powered research for FluentCRM companies and contacts using the Claude API with web search. Two surfaces: company research (with structured fields mirrored to linked contacts for segmentation) and individual contact research (with per-contact opt-out, grounded in Apra ethics standards). Configurable via Markdown context modules.
  * Author:          Make Good
  * Author URI:      https://wemakegood.org
  * Text Domain:     fluentcrm-contact-enrichment
  * Domain Path:     /languages
- * Version:         0.8.1
+ * Version:         0.8.2
  * License:         GPL-2.0-or-later
  * License URI:     https://www.gnu.org/licenses/gpl-2.0.html
  * Requires Plugins: fluent-crm
@@ -17,7 +17,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-const FCE_VERSION = '0.8.1';
+const FCE_VERSION = '0.8.2';
 
 const FCE_OPT_API_KEY        = 'fce_api_key';
 const FCE_OPT_MODEL          = 'fce_model';
