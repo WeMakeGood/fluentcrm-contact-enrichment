@@ -59,6 +59,7 @@ class FCE_Admin_Settings {
 			<h1><?php esc_html_e( 'FluentCRM Contact Enrichment', 'fluentcrm-contact-enrichment' ); ?></h1>
 
 			<?php self::render_notices(); ?>
+			<?php self::render_getting_started(); ?>
 
 			<h2 class="nav-tab-wrapper">
 				<?php self::render_tab_link( self::TAB_API, __( 'API Settings', 'fluentcrm-contact-enrichment' ), $tab ); ?>
@@ -276,8 +277,46 @@ class FCE_Admin_Settings {
 		}
 		?>
 		<p>
-			<?php esc_html_e( 'Markdown modules injected into every enrichment prompt, in display order. Use them to ground the research in your organization\'s priorities — your mission, what alignment means to you, partnership models you actually use, geographic focus, etc.', 'fluentcrm-contact-enrichment' ); ?>
+			<?php esc_html_e( 'Markdown modules injected into every company enrichment prompt, in display order. Use them to ground the research in your organization\'s priorities — your mission, what alignment means to you, partnership models you actually use, geographic focus, etc.', 'fluentcrm-contact-enrichment' ); ?>
 		</p>
+
+		<details style="margin: 0 0 1.5em 0; padding: 0.75em 1em; background: #f6f7f7; border: 1px solid #c3c4c7; border-radius: 4px;">
+			<summary style="cursor: pointer; font-weight: 600;"><?php esc_html_e( 'Show example: a starter Company Context module', 'fluentcrm-contact-enrichment' ); ?></summary>
+			<p style="margin-top: 0.75em;"><?php esc_html_e( 'Copy the example below into a new module if you want a starting point. Edit the placeholder text to match your organization, then mark the module Active and save.', 'fluentcrm-contact-enrichment' ); ?></p>
+			<p><strong><?php esc_html_e( 'Title:', 'fluentcrm-contact-enrichment' ); ?></strong> <?php esc_html_e( 'Mission and partnership criteria', 'fluentcrm-contact-enrichment' ); ?></p>
+			<p><strong><?php esc_html_e( 'Content:', 'fluentcrm-contact-enrichment' ); ?></strong></p>
+			<pre style="background: #fff; border: 1px solid #dcdcde; padding: 0.75em; white-space: pre-wrap; font-size: 13px; max-height: 24em; overflow: auto;"><?php
+echo esc_html(
+"# About our organization
+
+We are [organization name], [one-sentence description of mission and population served]. We work primarily in [geographic scope] and partner with organizations whose values and capacity align with our work.
+
+# What \"alignment\" means to us
+
+Strong alignment looks like:
+- [Concrete example of a clearly-aligned partner]
+- [Another concrete example]
+- Demonstrated commitment to [specific value or practice that matters to us]
+
+Moderate alignment looks like:
+- [Example of a partner who fits but with caveats]
+
+Weak or no alignment looks like:
+- [Example of a partner whose values diverge from ours]
+- Organizations whose primary mission conflicts with [our mission area]
+
+# Partnership models we actually use
+
+When evaluating partnership_models for a company, only return values that match how we actually engage:
+- We do accept: [list the partnership types we use, e.g. Donation, Sponsorship, Grant]
+- We do NOT pursue: [list types we don't use, e.g. Cause Marketing if we're a small grassroots org]
+
+# Geographic priorities
+
+Our highest-priority geographies are [list]. We can engage organizations operating outside these areas if alignment is strong on other dimensions, but factor geography into the alignment score."
+);
+?></pre>
+		</details>
 
 		<div class="fce-modules" id="fce-modules">
 			<?php foreach ( $modules as $i => $module ) : ?>
@@ -513,6 +552,108 @@ class FCE_Admin_Settings {
 		<p style="font-size: 13px; color: #606266;">
 			<?php esc_html_e( 'Contact research operates under Apra-derived professional standards: research is restricted to information bearing on the relationship the requesting organization is trying to build. The modules below tell Claude what "relevant" means for your use case.', 'fluentcrm-contact-enrichment' ); ?>
 		</p>
+
+		<details style="margin: 0 0 1.5em 0; padding: 0.75em 1em; background: #f6f7f7; border: 1px solid #c3c4c7; border-radius: 4px;">
+			<summary style="cursor: pointer; font-weight: 600;"><?php esc_html_e( 'Show examples: starter modules for common use cases', 'fluentcrm-contact-enrichment' ); ?></summary>
+			<p style="margin-top: 0.75em;"><?php esc_html_e( 'Pick the example that matches your use case as a starting point. Edit the placeholder text, then mark the module Active and save. You can run multiple modules at once if you have several relevant frames.', 'fluentcrm-contact-enrichment' ); ?></p>
+
+			<p><strong><?php esc_html_e( 'Example: donor prospect research', 'fluentcrm-contact-enrichment' ); ?></strong></p>
+			<pre style="background: #fff; border: 1px solid #dcdcde; padding: 0.75em; white-space: pre-wrap; font-size: 13px; max-height: 20em; overflow: auto;"><?php
+echo esc_html(
+"# Who we are and what we're researching for
+
+We are [organization name], [one-sentence mission statement]. We're researching individuals as part of donor cultivation, with the goal of identifying people whose values, capacity, and life circumstances suggest they might support our mission.
+
+# What relevant means for us
+
+For each contact, we want to know:
+- Their professional context (current role, organizational affiliations, public bio)
+- Their philanthropic history (known giving, board service, charitable involvement, recognition in capital campaigns)
+- Their alignment with our mission, specifically: [list the 2–3 mission dimensions that matter most]
+- Their prior relationship to us (alumni, prior gift, board overlap, mission-aligned advocacy)
+- Receptivity signals (recent life events, retirement, new role, public statements about giving)
+
+# What we don't want
+
+- Personal life details unrelated to the giving relationship
+- Family information beyond what's professionally public
+- Social media content beyond professional context
+- Speculative wealth estimates from aggregator sites
+
+# Capacity tiers
+
+When you assign a capacity tier, use:
+- Major: indicators of giving capacity at our major-gift threshold ([dollar range if you have one])
+- Mid: indicators of meaningful but not transformational giving capacity
+- Standard: no specific capacity signals, treat as a standard prospect
+- Unknown: insufficient public information to estimate capacity"
+);
+?></pre>
+
+			<p style="margin-top: 1.5em;"><strong><?php esc_html_e( 'Example: cohort program participant prep', 'fluentcrm-contact-enrichment' ); ?></strong></p>
+			<pre style="background: #fff; border: 1px solid #dcdcde; padding: 0.75em; white-space: pre-wrap; font-size: 13px; max-height: 20em; overflow: auto;"><?php
+echo esc_html(
+"# Who we are and what we're researching for
+
+We are [program name], a [duration] cohort-based program for [participant description]. We're researching incoming participants so facilitators have context before the cohort starts. The goal is preparation, not gatekeeping.
+
+# What relevant means for us
+
+For each participant, we want to know:
+- Their leadership role and current scope of responsibility
+- The kinds of challenges they're publicly working on
+- Prior leadership development they've engaged with (if any)
+- Their organizational context (size, sector, stage)
+- Topics they've written or spoken about
+
+# What we don't want
+
+- Personal life details unrelated to their professional development
+- Speculation about how they'll perform in the cohort
+- Anything that would feel surveillance-like if the participant read it
+
+# Capacity tiers (we use leadership stages instead of fundraising tiers)
+
+When you assign a capacity tier, use the values configured in our Capacity Tiers tab:
+- Senior Leader: 15+ years experience, executive scope
+- Mid-Career: 7-15 years, expanding scope
+- Emerging: <7 years, currently growing into leadership
+- Unknown: insufficient public information"
+);
+?></pre>
+
+			<p style="margin-top: 1.5em;"><strong><?php esc_html_e( 'Example: B2B sales / partnership stakeholder research', 'fluentcrm-contact-enrichment' ); ?></strong></p>
+			<pre style="background: #fff; border: 1px solid #dcdcde; padding: 0.75em; white-space: pre-wrap; font-size: 13px; max-height: 20em; overflow: auto;"><?php
+echo esc_html(
+"# Who we are and what we're researching for
+
+We are [company name], [what we sell or offer]. We're researching individual stakeholders at companies we're considering as partners or customers. The goal is to understand decision authority, organizational role, and what would make engagement valuable to them.
+
+# What relevant means for us
+
+For each contact, we want to know:
+- Their role and decision-making authority within their company
+- Their professional history relevant to our offering
+- Topics they've written or spoken about that relate to what we sell
+- Public statements about their company's strategy that bear on whether our offering would help
+- Existing connections to our company or its founders
+
+# What we don't want
+
+- Personal life details
+- Compensation or wealth indicators (not relevant for B2B)
+- Anything that would feel intrusive if surfaced in an outreach email
+
+# Capacity tiers (we use decision authority instead of fundraising tiers)
+
+Our Capacity Tiers should be set to:
+- Decision Maker: confirmed authority over the relevant budget or strategic decision
+- Influencer: known to shape decisions but not the final decision-maker
+- End User: would use what we sell but doesn't make purchasing decisions
+- Unknown"
+);
+?></pre>
+		</details>
 
 		<div class="fce-modules" id="fce-contact-modules">
 			<?php foreach ( $modules as $i => $module ) : ?>
@@ -849,6 +990,123 @@ class FCE_Admin_Settings {
 		);
 	}
 
+	/**
+	 * Getting Started panel — visible until enough setup is complete to
+	 * actually do an enrichment. Auto-hides when:
+	 *   - API key is set, AND
+	 *   - At least one company context module OR at least one contact
+	 *     context module is active (i.e. at least one enrichment surface
+	 *     is configured).
+	 *
+	 * Steps shown as ✓ (done) / ✗ (todo). Each unsatisfied step links to
+	 * the tab that resolves it, so the panel is also a navigation aid
+	 * during initial setup. The panel re-appears if anything regresses
+	 * (admin clears their API key, removes all context modules, etc.).
+	 *
+	 * @return void
+	 */
+	private static function render_getting_started() {
+		$state = self::getting_started_state();
+		if ( $state['hidden'] ) {
+			return;
+		}
+
+		?>
+		<div class="fce-getting-started" style="background: #fff; border: 1px solid #c3c4c7; border-left: 4px solid #2271b1; padding: 1em 1.5em; margin: 1em 0;">
+			<h2 style="margin-top: 0; font-size: 16px;">
+				<?php esc_html_e( 'Getting Started', 'fluentcrm-contact-enrichment' ); ?>
+			</h2>
+			<p style="margin-top: 0;">
+				<?php esc_html_e( 'Complete these steps to start enriching companies and contacts. This panel will hide itself once at least one enrichment surface is fully configured.', 'fluentcrm-contact-enrichment' ); ?>
+			</p>
+
+			<ol style="margin: 0.75em 0 0.5em 1.5em; padding: 0;">
+				<?php foreach ( $state['steps'] as $step ) : ?>
+					<li style="margin-bottom: 0.5em; line-height: 1.6;">
+						<span style="<?php echo esc_attr( $step['done'] ? 'color: #00a32a; font-weight: bold;' : 'color: #b32d2e; font-weight: bold;' ); ?>"><?php echo $step['done'] ? '✓' : '✗'; ?></span>
+						<strong><?php echo esc_html( $step['label'] ); ?></strong>
+						<?php if ( ! $step['done'] ) : ?>
+							— <a href="<?php echo esc_url( $step['link'] ); ?>"><?php echo esc_html( $step['action'] ); ?></a>
+						<?php endif; ?>
+						<?php if ( ! empty( $step['hint'] ) ) : ?>
+							<br /><span style="color: #646970; font-size: 13px;"><?php echo esc_html( $step['hint'] ); ?></span>
+						<?php endif; ?>
+					</li>
+				<?php endforeach; ?>
+			</ol>
+
+		</div>
+		<?php
+	}
+
+	/**
+	 * Compute the Getting Started panel's state. Returns an array with:
+	 *   - hidden: bool — whether to suppress rendering entirely
+	 *   - steps: list of {label, done, link, action, hint}
+	 *
+	 * The panel hides once the minimum bar is met: API key set AND at
+	 * least one enrichment surface (company OR contact context) is
+	 * active. Users who want both surfaces can still see partial-
+	 * readiness in the relevant tabs; we don't nag once at least one
+	 * surface is live.
+	 *
+	 * @return array
+	 */
+	private static function getting_started_state() {
+		$has_api_key   = '' !== self::get_api_key();
+		$company_mods  = class_exists( 'FCE_Context_Modules' )
+			? count( FCE_Context_Modules::active() )
+			: 0;
+		$contact_mods  = class_exists( 'FCE_Contact_Context_Modules' )
+			? count( FCE_Contact_Context_Modules::active() )
+			: 0;
+
+		$hidden = $has_api_key && ( ( $company_mods > 0 ) || ( $contact_mods > 0 ) );
+
+		$steps = array(
+			array(
+				'label'  => __( 'Add your Anthropic API key', 'fluentcrm-contact-enrichment' ),
+				'done'   => $has_api_key,
+				'link'   => self::tab_url( self::TAB_API ),
+				'action' => __( 'Open API Settings', 'fluentcrm-contact-enrichment' ),
+				'hint'   => $has_api_key
+					? __( 'Tip: click Test Connection on the API Settings tab to confirm the key works and that web search is enabled at your Anthropic org.', 'fluentcrm-contact-enrichment' )
+					: __( 'Get a key at console.anthropic.com. Web search must be enabled at the org level — see the API Settings tab for the link.', 'fluentcrm-contact-enrichment' ),
+			),
+			array(
+				'label'  => __( 'Configure Company Context (for enriching companies)', 'fluentcrm-contact-enrichment' ),
+				'done'   => $company_mods > 0,
+				'link'   => self::tab_url( self::TAB_CONTEXT ),
+				'action' => __( 'Open Company Context', 'fluentcrm-contact-enrichment' ),
+				'hint'   => $company_mods > 0
+					? sprintf(
+						/* translators: %d: count of active modules */
+						_n( '%d active module.', '%d active modules.', $company_mods, 'fluentcrm-contact-enrichment' ),
+						$company_mods
+					)
+					: __( 'Markdown describing what your organization considers important when researching companies — your mission, what alignment means to you, partnership models you actually use. The tab includes a starter example.', 'fluentcrm-contact-enrichment' ),
+			),
+			array(
+				'label'  => __( 'Configure Contact Context (for enriching individual contacts)', 'fluentcrm-contact-enrichment' ),
+				'done'   => $contact_mods > 0,
+				'link'   => self::tab_url( self::TAB_CONTACT_CONTEXT ),
+				'action' => __( 'Open Contact Context', 'fluentcrm-contact-enrichment' ),
+				'hint'   => $contact_mods > 0
+					? sprintf(
+						/* translators: %d: count of active modules */
+						_n( '%d active module.', '%d active modules.', $contact_mods, 'fluentcrm-contact-enrichment' ),
+						$contact_mods
+					)
+					: __( 'Optional if you only enrich companies. For individual research (donor prospecting, cohort participant prep, sales prospecting, board recruitment), this tells Claude what your use case considers relevant.', 'fluentcrm-contact-enrichment' ),
+			),
+		);
+
+		return array(
+			'hidden' => $hidden,
+			'steps'  => $steps,
+		);
+	}
+
 	private static function render_notices() {
 		$msg = isset( $_GET['fce_msg'] ) ? sanitize_key( wp_unslash( $_GET['fce_msg'] ) ) : '';
 		switch ( $msg ) {
@@ -856,7 +1114,19 @@ class FCE_Admin_Settings {
 				echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Settings saved.', 'fluentcrm-contact-enrichment' ) . '</p></div>';
 				break;
 			case 'connection_ok':
-				echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Connection successful — API key valid and web search is enabled.', 'fluentcrm-contact-enrichment' ) . '</p></div>';
+				$company_active = class_exists( 'FCE_Context_Modules' ) ? count( FCE_Context_Modules::active() ) : 0;
+				$contact_active = class_exists( 'FCE_Contact_Context_Modules' ) ? count( FCE_Contact_Context_Modules::active() ) : 0;
+				if ( 0 === $company_active && 0 === $contact_active ) {
+					$msg = sprintf(
+						/* translators: 1: link to Company Context tab, 2: link to Contact Context tab */
+						__( 'Connection successful — API key valid and web search is enabled. Next: configure at least one %1$s (for company enrichment) or %2$s (for individual contact research) before you can enrich anything.', 'fluentcrm-contact-enrichment' ),
+						sprintf( '<a href="%s">%s</a>', esc_url( self::tab_url( self::TAB_CONTEXT ) ), esc_html__( 'Company Context module', 'fluentcrm-contact-enrichment' ) ),
+						sprintf( '<a href="%s">%s</a>', esc_url( self::tab_url( self::TAB_CONTACT_CONTEXT ) ), esc_html__( 'Contact Context module', 'fluentcrm-contact-enrichment' ) )
+					);
+					echo '<div class="notice notice-success is-dismissible"><p>' . wp_kses_post( $msg ) . '</p></div>';
+				} else {
+					echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Connection successful — API key valid and web search is enabled. You\'re ready to enrich.', 'fluentcrm-contact-enrichment' ) . '</p></div>';
+				}
 				break;
 			case 'connection_fail':
 				$error = get_transient( 'fce_test_result' );

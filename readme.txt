@@ -4,7 +4,7 @@ Tags: fluentcrm, crm, claude, anthropic, enrichment, research
 Requires at least: 5.8
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.7.1
+Stable tag: 0.8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -82,6 +82,11 @@ The company's Enrichment Status flips to Failed and a note is added describing t
 The Enrichment Status field appears on the company record. FluentCRM does not currently expose extension points for company list columns or segment filters that would let custom company fields appear in those surfaces.
 
 == Changelog ==
+
+= 0.8.0 =
+* New "Getting Started" panel on the settings page that walks first-time admins through the three steps needed to enrich anything: add an Anthropic API key, configure at least one Company Context module, and (optionally) configure a Contact Context module. The panel auto-hides once at least one enrichment surface is fully configured, and reappears if anything regresses.
+* Each context-module tab now includes a collapsible "Show example" section with starter Markdown an admin can copy as a starting point. The Contact Context tab includes three examples — donor prospect research, cohort program participant prep, and B2B sales / partnership stakeholder research — so the choice of use case is concrete from the start.
+* Test Connection success message now points to the next setup step ("configure a Company Context module" or "configure a Contact Context module") when no context modules are configured yet. Previously the success message was identical regardless of whether anything else was set up.
 
 = 0.7.1 =
 * Internal cleanup, no user-facing changes. Removed dead `cited_text` plumbing from the Claude client (an early citation-handling experiment that was never wired into anything) and clarified the org-side mapper's constants (`ORG_SINGLE_SELECT_FALLBACKS`, `ORG_MULTI_SELECT_FIELDS`) so they don't mislead about the contact-side mapper.
