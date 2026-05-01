@@ -382,6 +382,45 @@ Useful for filtering: "show me all contacts where research found something" vs. 
 
 ---
 
+## Lookup fields (v0.9.0+) — inject existing data into the prompt
+
+The plugin can include the values of admin-selected FluentCRM custom fields in every enrichment prompt as "existing data on file." Configured in the Company Context and Contact Context settings tabs.
+
+This is meaningful for fundraising research and any other use case where the requesting organization holds factual signal that's stronger than what Claude can find publicly: giving totals from external systems, WooCommerce purchase history, course completion records, partnership history, pledge data. With injection, Claude treats those values as given facts and grounds the structured field outputs and narrative on top of them.
+
+### How the picker works
+
+Both context tabs include a picker section listing every eligible FluentCRM custom field for that surface. Eligible means: a real FluentCRM custom field that's *not* one of the plugin's own enrichment-output fields. Plugin-managed slugs (the `org_*` mirrors, the `individual_*` outputs, the `enrichment_*` status fields) are deliberately excluded — including them would create feedback loops where prior enrichments anchor subsequent runs.
+
+Fields are grouped by FluentCRM's field-group label so they're organized the same way they appear elsewhere in FluentCRM. The picker shows the human label, slug, and field type. Selection is per-surface — you can pick different fields for company research and contact research.
+
+### What the prompt looks like
+
+When at least one field is selected and has a value on the record being enriched, the user prompt includes a section like:
+
+```
+## Existing data on file (treat as given facts)
+
+These values come from the requesting organization's own records and should be treated as given. You don't need to verify them. Use them to ground your research and inform the structured field outputs and narrative.
+
+- **Total Order Value:** 166.39
+- **Total Order Count:** 29
+- **Current Year Giving:** 43.92
+- **Previous Year Giving:** 122.47
+```
+
+Empty values are skipped silently. If no selected field has a value on this record, the section is omitted entirely.
+
+### Where the prompt discipline is updated
+
+Both system prompts (company and contact) acknowledge the section's existence and instruct Claude to:
+
+- Treat the values as given facts (no verification effort)
+- Use them as inputs to structured fields, especially capacity tier and prior relationship
+- Cite them in the narrative with attribution like "the requesting organization's records show…"
+
+The contact-side preamble specifically calls out that injected data typically holds stronger signal than anything findable publicly, because individual research has thinner public sources than organizational research.
+
 ## Native FluentCRM company fields (filled if empty)
 
 In addition to the custom fields above, enrichment also populates FluentCRM's *built-in* company columns when they're currently empty. **The plugin never overwrites admin-curated values** — if any of these columns is already set on the company record, the enrichment leaves it alone, regardless of what Claude returned. The success note's footer lists which native fields were filled.

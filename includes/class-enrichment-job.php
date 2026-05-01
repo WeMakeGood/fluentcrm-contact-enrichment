@@ -212,6 +212,7 @@ Research discipline:
 - Mark inferences as inferences. If you are reasoning from incomplete information ("likely a small team based on website size"), make the inferential step visible in the language rather than stating the inference as fact.
 - When information cannot be reasonably determined, use "Unknown" for structured fields and name the gap explicitly in the narrative. Do not fabricate.
 - Before assigning the alignment score, weigh more than the first framing that comes to mind — the alignment dimensions in the context modules below typically pull in different directions for any organization, and the score should reflect that tension honestly.
+- The user message may include an "Existing data on file" section listing values the requesting organization already has on this record. Treat those values as given facts — don't try to verify them, and use them as inputs to your research and to the structured field outputs. They typically contain stronger signal than what's findable via web search.
 
 PROMPT;
 	}
@@ -369,6 +370,16 @@ SCHEMA;
 			$lines[] = 'Existing description:';
 			$lines[] = (string) $company->description;
 		}
+
+		// v0.9.0+: inject admin-selected lookup field values as "existing
+		// data on file" — facts the requesting org already knows that
+		// Claude should treat as given.
+		$lookup_block = FCE_Lookup_Fields::render_company_block( $company );
+		if ( '' !== $lookup_block ) {
+			$lines[] = '';
+			$lines[] = $lookup_block;
+		}
+
 		$lines[] = '';
 		$lines[] = 'Return only the JSON object inside <json>...</json> tags after your research is complete.';
 		return implode( "\n", $lines );
@@ -434,6 +445,7 @@ Research discipline:
 - **Mark inferences as inferences.** If you reason from incomplete information, make the inferential step visible in the language rather than stating an inference as fact. Confidence calibration matters more here than for org research because individual research has thinner sources and higher stakes.
 - **When information cannot be reasonably determined, say so.** Use "Unknown" for structured fields and name the gap explicitly in the narrative. Most individuals are not public figures; "Unknown" will be the honest answer for many fields, especially for non-major-donor / non-executive subjects.
 - **Before assigning the alignment score, weigh more than the first framing that comes to mind.** The alignment dimensions in the context modules below typically pull in different directions for any individual; the score should reflect that tension honestly rather than picking the cleanest narrative.
+- **The user message may include an "Existing data on file" section** listing values the requesting organization already has about this person — giving totals, course completions, prior contact history, partnership records, etc. Treat those as given facts. Don't try to verify them; use them as inputs to your research, especially for `individual_capacity_tier` and `individual_prior_relationship`. These typically hold stronger signal than anything findable publicly. Cite them in the narrative as "the requesting organization's records show…" or similar attribution.
 
 PROMPT;
 	}
@@ -537,6 +549,17 @@ SCHEMA;
 		// a common FluentCRM field).
 		if ( ! empty( $contact->job_title ) ) {
 			$lines[] = 'Title: ' . (string) $contact->job_title;
+		}
+
+		// v0.9.0+: inject admin-selected lookup field values as "existing
+		// data on file" — facts the requesting org already knows that
+		// Claude should treat as given. Especially important for
+		// fundraising research where giving-history fields hold stronger
+		// signal than anything Claude can find publicly.
+		$lookup_block = FCE_Lookup_Fields::render_contact_block( $contact );
+		if ( '' !== $lookup_block ) {
+			$lines[] = '';
+			$lines[] = $lookup_block;
 		}
 
 		$lines[] = '';

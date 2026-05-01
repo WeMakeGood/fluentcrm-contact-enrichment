@@ -4,7 +4,7 @@ Tags: fluentcrm, crm, claude, anthropic, ai, enrichment, research, fundraising, 
 Requires at least: 5.8
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.8.2
+Stable tag: 0.9.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -86,6 +86,10 @@ Two settings tabs hold the framing:
 
 Each tab includes a "Show example" collapsible block with starter content you can copy and adapt. Active modules are concatenated into the system prompt that goes to Claude on every enrichment, so the AI reads them as instructions before researching anything.
 
+= Can Claude see data my CRM already has on a record? =
+
+Yes, if you opt fields in. Both context tabs include a "Lookup fields" section where you can select FluentCRM custom fields whose values should be injected into every enrichment prompt as "existing data on file." This is useful for fields that contain stronger signal than Claude can find via web search — giving totals from external systems, WooCommerce purchase history, course completion records, pledge data. Claude treats those values as given facts and grounds the rest of the research on them. The plugin's own enrichment-output fields are deliberately excluded from the picker to prevent feedback loops where prior enrichments anchor subsequent ones.
+
 = What happens if research fails? =
 
 The status field flips to Failed and a clearly-titled error note is added to the record (a CompanyNote for company enrichment, a SubscriberNote for contact enrichment) describing what went wrong. You can re-run by clicking Enrich again — same-day re-runs replace the failure note rather than piling them up.
@@ -107,6 +111,9 @@ Yes. Every successful enrichment writes a four-section narrative note attached t
 The contact-side org_* fields stay populated with the previous company's values until either (a) the new company is enriched (which writes the new values), or (b) the admin clicks "Sync to Contacts" on the new company's profile section. The bulk "Resync all contacts" Danger Zone in the settings page can fix drift across many companies at once if needed.
 
 == Changelog ==
+
+= 0.9.0 =
+* New "Lookup fields" picker on both context tabs. Admins can select FluentCRM custom fields whose values should be injected into every enrichment prompt as "existing data on file." Useful for fields that hold stronger signal than Claude can find via web search — giving totals from external systems, WooCommerce purchase history, course completion records, pledge data. Plugin-managed enrichment outputs are deliberately excluded to prevent feedback loops. Verified live: injecting giving-history fields into a contact-research run shifted the capacity tier output appropriately (recognizing a small-dollar sustaining donor pattern) and produced a narrative that quoted the injected values directly with proper attribution.
 
 = 0.8.2 =
 * Documentation-only release. Rewrites readme.txt as legitimately user-facing documentation covering both research surfaces, the Apra-grounded privacy posture for individual research, and an expanded FAQ. Updates the plugin header description to reflect both surfaces. Adds a separate README.md as the GitHub landing page (developer-facing, with architecture overview, integration points, and links to engineering docs).

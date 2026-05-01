@@ -7,7 +7,7 @@
  * Author URI:      https://wemakegood.org
  * Text Domain:     fluentcrm-contact-enrichment
  * Domain Path:     /languages
- * Version:         0.8.2
+ * Version:         0.9.0
  * License:         GPL-2.0-or-later
  * License URI:     https://www.gnu.org/licenses/gpl-2.0.html
  * Requires Plugins: fluent-crm
@@ -17,7 +17,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-const FCE_VERSION = '0.8.2';
+const FCE_VERSION = '0.9.0';
 
 const FCE_OPT_API_KEY        = 'fce_api_key';
 const FCE_OPT_MODEL          = 'fce_model';
@@ -26,6 +26,8 @@ const FCE_OPT_CONTEXT_MODS   = 'fce_context_modules';
 const FCE_OPT_FOCUS_AREAS    = 'fce_focus_area_options';
 const FCE_OPT_CONTACT_MODS   = 'fce_contact_context_modules';
 const FCE_OPT_CAPACITY_TIERS = 'fce_capacity_tier_options';
+const FCE_OPT_COMPANY_LOOKUP = 'fce_company_lookup_fields';
+const FCE_OPT_CONTACT_LOOKUP = 'fce_contact_lookup_fields';
 
 const FCE_MENU_SLUG          = 'fluentcrm-contact-enrichment';
 const FCE_SECTION_KEY        = 'fce_enrichment';
@@ -70,6 +72,7 @@ require_once FCE_PLUGIN_DIR . 'includes/class-field-registrar.php';
 require_once FCE_PLUGIN_DIR . 'includes/class-context-modules.php';
 require_once FCE_PLUGIN_DIR . 'includes/class-claude-client.php';
 require_once FCE_PLUGIN_DIR . 'includes/class-data-mapper.php';
+require_once FCE_PLUGIN_DIR . 'includes/class-lookup-fields.php';
 require_once FCE_PLUGIN_DIR . 'includes/class-contact-sync.php';
 require_once FCE_PLUGIN_DIR . 'includes/class-enrichment-job.php';
 require_once FCE_PLUGIN_DIR . 'includes/class-admin-settings.php';

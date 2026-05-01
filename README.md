@@ -53,6 +53,7 @@ fluentcrm-contact-enrichment/
 │   ├── class-context-modules.php      Company + Contact context module storage
 │   ├── class-claude-client.php        Anthropic Messages API HTTP client
 │   ├── class-data-mapper.php          JSON extraction + value validation
+│   ├── class-lookup-fields.php        inject FluentCRM custom-field values into prompts
 │   ├── class-contact-sync.php         push company-cached values to contacts
 │   ├── class-enrichment-job.php       WP-Cron handlers for both surfaces
 │   ├── class-admin-settings.php       Settings → Contact Enrichment (6 tabs)
@@ -114,8 +115,8 @@ Field definitions are auto-created on activation and idempotent on re-activation
 All admin configuration lives at **Settings → Contact Enrichment**:
 
 - **API Settings** — Anthropic API key (encrypted at rest using WordPress auth salts), model selection, max searches per enrichment, Test Connection button
-- **Contact Context** — Markdown modules framing the use case for individual research (donor prospecting, cohort prep, sales, board recruitment). Includes three starter examples.
-- **Company Context** — Markdown modules framing how the requesting organization thinks about company research. Includes one starter example.
+- **Contact Context** — Markdown modules framing the use case for individual research (donor prospecting, cohort prep, sales, board recruitment). Includes three starter examples. Also includes a lookup-field picker for selecting FluentCRM contact custom fields whose values should be injected into the prompt as "existing data on file" — useful for fields that hold stronger signal than Claude can find publicly (giving totals from external systems, WooCommerce purchase history, course completion records).
+- **Company Context** — Markdown modules framing how the requesting organization thinks about company research. Includes one starter example. Same lookup-field picker pattern for company-side fields.
 - **Focus Areas** — admin-editable values for the `org_focus_areas` multi-select field
 - **Capacity Tiers** — admin-editable values for the `individual_capacity_tier` field (defaults are donor-flavored; rewrite for non-fundraising use cases)
 - **Danger Zone** — bulk "Resync all contacts" with typed confirmation gate

@@ -380,6 +380,17 @@ Our highest-priority geographies are [list]. We can engage organizations operati
 			}
 		})();
 		</script>
+
+		<?php
+		self::render_lookup_picker(
+			'company',
+			__( 'Lookup fields', 'fluentcrm-contact-enrichment' ),
+			__( 'Select FluentCRM company custom fields whose values should be injected into every company-research prompt as "existing data on file." Use this for fields that contain stronger signal than Claude can find via web search — accounting data, donation totals, partnership history, etc. Plugin-managed fields (the enrichment outputs) are deliberately excluded to prevent feedback loops.', 'fluentcrm-contact-enrichment' ),
+			'fce_company_lookup',
+			FCE_Lookup_Fields::available_company_fields(),
+			FCE_Lookup_Fields::selected_company_slugs()
+		);
+		?>
 		<?php
 	}
 
@@ -717,6 +728,17 @@ Our Capacity Tiers should be set to:
 			}
 		})();
 		</script>
+
+		<?php
+		self::render_lookup_picker(
+			'contact',
+			__( 'Lookup fields', 'fluentcrm-contact-enrichment' ),
+			__( 'Select FluentCRM contact custom fields whose values should be injected into every contact-research prompt as "existing data on file." Especially useful for fields that hold stronger signal than Claude can find publicly — giving totals from external systems, WooCommerce purchase history, course completion records, pledge data, etc. Plugin-managed fields (org_* mirrors and individual_* outputs) are deliberately excluded to prevent feedback loops.', 'fluentcrm-contact-enrichment' ),
+			'fce_contact_lookup',
+			FCE_Lookup_Fields::available_contact_fields(),
+			FCE_Lookup_Fields::selected_contact_slugs()
+		);
+		?>
 		<?php
 	}
 
@@ -788,6 +810,73 @@ Our Capacity Tiers should be set to:
 	// Tab savers
 	// ---------------------------------------------------------------------
 
+	/**
+	 * Render a lookup-field picker. Used at the bottom of both context
+	 * tabs to let admins select which existing FluentCRM custom fields
+	 * should be injected into the corresponding enrichment prompt.
+	 *
+	 * @param string $surface       'company' or 'contact' — used for form-name namespacing only
+	 * @param string $heading       Tab section heading
+	 * @param string $description   Helpful explanation paragraph above the picker
+	 * @param string $form_field    Form field name (e.g. 'fce_company_lookup')
+	 * @param array  $available     Output of FCE_Lookup_Fields::available_*_fields()
+	 * @param array  $selected      Slugs the admin previously selected
+	 * @return void
+	 */
+	private static function render_lookup_picker( $surface, $heading, $description, $form_field, array $available, array $selected ) {
+		$selected_set = array_flip( $selected );
+
+		// Group by FluentCRM field group for readability.
+		$grouped = array();
+		foreach ( $available as $f ) {
+			$group               = '' !== $f['group'] ? $f['group'] : __( '(no group)', 'fluentcrm-contact-enrichment' );
+			$grouped[ $group ][] = $f;
+		}
+		ksort( $grouped );
+		?>
+		<hr style="margin: 2em 0 1.5em 0;" />
+		<h3 style="margin-bottom: 0.5em;"><?php echo esc_html( $heading ); ?></h3>
+		<p style="max-width: 720px; color: #50575e;">
+			<?php echo esc_html( $description ); ?>
+		</p>
+
+		<?php if ( empty( $available ) ) : ?>
+			<p style="color: #646970; font-style: italic;">
+				<?php
+				if ( 'company' === $surface ) {
+					esc_html_e( 'No eligible company custom fields are defined yet. FluentCRM custom fields you create — or fields created by integrations like WooCommerce — will appear here, excluding the plugin\'s own enrichment outputs.', 'fluentcrm-contact-enrichment' );
+				} else {
+					esc_html_e( 'No eligible contact custom fields are defined yet. FluentCRM custom fields you create — or fields created by integrations like WooCommerce, FluentForm, or LearnDash — will appear here, excluding the plugin\'s own enrichment outputs.', 'fluentcrm-contact-enrichment' );
+				}
+				?>
+			</p>
+		<?php else : ?>
+			<div style="background: #fff; border: 1px solid #c3c4c7; padding: 0.75em 1em; max-width: 720px;">
+				<?php foreach ( $grouped as $group_label => $fields_in_group ) : ?>
+					<div style="margin-bottom: 0.75em;">
+						<div style="font-weight: 600; color: #1d2327; font-size: 13px; padding: 0.25em 0; border-bottom: 1px solid #f0f0f1; margin-bottom: 0.5em;">
+							<?php echo esc_html( $group_label ); ?>
+						</div>
+						<?php foreach ( $fields_in_group as $f ) : ?>
+							<label style="display: block; padding: 0.25em 0;">
+								<input type="checkbox"
+									name="<?php echo esc_attr( $form_field ); ?>[]"
+									value="<?php echo esc_attr( $f['slug'] ); ?>"
+									<?php checked( isset( $selected_set[ $f['slug'] ] ) ); ?> />
+								<?php echo esc_html( $f['label'] ); ?>
+								<span style="color: #646970; font-size: 12px;">(<?php echo esc_html( $f['slug'] ); ?>, <?php echo esc_html( $f['type'] ); ?>)</span>
+							</label>
+						<?php endforeach; ?>
+					</div>
+				<?php endforeach; ?>
+			</div>
+			<p style="font-size: 13px; color: #646970; max-width: 720px; margin-top: 0.5em;">
+				<?php esc_html_e( 'Tip: only select fields that contain factual data the requesting organization already knows about the record. Free-text notes, internal flags, and admin tags often add noise without improving research quality.', 'fluentcrm-contact-enrichment' ); ?>
+			</p>
+		<?php endif; ?>
+		<?php
+	}
+
 	private static function save_api_tab() {
 		// API key: only update if non-empty (so saving the form without
 		// retyping doesn't blank the stored key).
@@ -815,6 +904,20 @@ Our Capacity Tiers should be set to:
 			? $_POST['fce_modules']
 			: array();
 		FCE_Context_Modules::save( $modules );
+
+		// Lookup field selection lives on the same tab as the context
+		// modules. Validate against the eligible-fields list so submitted
+		// slugs that aren't actually pickable (e.g. plugin-managed
+		// fields someone tampered with the form to include) are dropped.
+		$posted_slugs = isset( $_POST['fce_company_lookup'] ) && is_array( $_POST['fce_company_lookup'] )
+			? $_POST['fce_company_lookup']
+			: array();
+		$eligible = array_column( FCE_Lookup_Fields::available_company_fields(), 'slug' );
+		$cleaned  = array_values( array_intersect(
+			array_map( 'sanitize_text_field', array_map( 'wp_unslash', $posted_slugs ) ),
+			$eligible
+		) );
+		update_option( FCE_OPT_COMPANY_LOOKUP, $cleaned, false );
 	}
 
 	private static function save_focus_tab() {
@@ -845,6 +948,18 @@ Our Capacity Tiers should be set to:
 			? $_POST['fce_contact_modules']
 			: array();
 		FCE_Contact_Context_Modules::save( $modules );
+
+		// Lookup field selection. Validate against the eligible-fields
+		// list as a safety net.
+		$posted_slugs = isset( $_POST['fce_contact_lookup'] ) && is_array( $_POST['fce_contact_lookup'] )
+			? $_POST['fce_contact_lookup']
+			: array();
+		$eligible = array_column( FCE_Lookup_Fields::available_contact_fields(), 'slug' );
+		$cleaned  = array_values( array_intersect(
+			array_map( 'sanitize_text_field', array_map( 'wp_unslash', $posted_slugs ) ),
+			$eligible
+		) );
+		update_option( FCE_OPT_CONTACT_LOOKUP, $cleaned, false );
 	}
 
 	private static function save_capacity_tab() {

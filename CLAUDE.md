@@ -79,6 +79,22 @@ Use `web_search_20250305`. The newer `web_search_20260209` adds dynamic filterin
 
 Stored AES-256-CBC encrypted with a key derived from WP auth salts (`hash('sha256', AUTH_KEY . SECURE_AUTH_KEY . AUTH_SALT . 'fluentcrm-contact-enrichment', true)`). The stored value starts with `fce1:` so the version is identifiable for future migrations. A server compromise that reads `wp-config.php` can decrypt — that's the realistic threat model for WP plugins, and we don't claim to defend beyond it. The save path only updates the option when a non-empty value is posted, so resubmitting the form without retyping doesn't blank the stored key.
 
+### Lookup field injection (v0.9.0)
+
+The plugin lets admins inject existing FluentCRM custom-field values into the enrichment prompt as "existing data on file" — facts the requesting organization already has on the record that Claude should treat as given rather than try to verify. Configured in the Company Context and Contact Context tabs (one picker per surface).
+
+The motivating use case is fundraising research: giving totals from external systems, WooCommerce purchase history, course completion records, and similar internal-only signals carry stronger evidence about capacity and prior relationship than anything Claude can find publicly. Without injection, Claude either doesn't have access to those facts or has to treat them as "claimed but unverified." With injection, the structured outputs (`individual_capacity_tier`, `individual_prior_relationship`, etc.) are calibrated against real data.
+
+Two options keys hold the selected slugs:
+- `fce_company_lookup_fields` — applied during company enrichment via `FCE_Lookup_Fields::render_company_block()`
+- `fce_contact_lookup_fields` — applied during contact enrichment via `FCE_Lookup_Fields::render_contact_block()`
+
+Plugin-managed slugs (the org_* mirrors, individual_* outputs, and company-side enrichment_* status fields) are deliberately excluded from the picker. Including them would create a feedback loop where prior enrichments anchor subsequent ones — the model would read its own previous output and tend to confirm it rather than re-evaluate. The `available_*_fields()` methods filter against `FCE_Field_Registrar::all_contact_field_slugs()` and `company_field_definitions()` to enforce this.
+
+The prompt block uses a fixed Markdown structure (heading + framing paragraph + bulleted `**Label:** value` lines) that the research-discipline preambles in both surfaces explicitly reference, so Claude knows to expect it and how to interpret it. Multi-valued fields are joined with `, ` for readability; empty values are skipped (so a contact missing a particular field doesn't get a dangling empty bullet).
+
+Verified live with a real enrichment: injecting giving-history fields into a contact research run shifted `individual_capacity_tier` from "Unknown" to "Standard" (recognizing a small-dollar sustaining donor pattern), `individual_prior_relationship` from "No" to "Yes", and `individual_engagement_readiness` from "Medium" to "High." The narrative quoted the values directly with proper attribution ("the requesting organization's records show…"). Same record, same web search; dramatically more grounded outputs.
+
 ### Individual contact research surface (v0.7.0)
 
 A parallel research path that targets the contact (not their employer). Use cases are framed by the admin's contact context modules — fundraising prospect research, cohort prep, sales prospecting, board recruitment all share the same machinery, just different framing.
@@ -168,6 +184,7 @@ The settings tab "Focus Areas" stores its option list in `fce_focus_area_options
 - `includes/class-context-modules.php` — Markdown module CRUD
 - `includes/class-claude-client.php` — Anthropic Messages API HTTP client
 - `includes/class-data-mapper.php` — JSON extraction + value validation
+- `includes/class-lookup-fields.php` — read FluentCRM custom field definitions and inject selected values as "existing data on file" prompt context (v0.9.0+)
 - `includes/class-contact-sync.php` — push company-side cached values to linked contacts (per-company + bulk paths)
 - `includes/class-enrichment-job.php` — WP-Cron handler, the full pipeline
 - `includes/class-admin-settings.php` — Settings → Contact Enrichment, three tabs
