@@ -4,7 +4,7 @@ Tags: fluentcrm, crm, claude, anthropic, enrichment, research
 Requires at least: 5.8
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.8.0
+Stable tag: 0.8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -82,6 +82,9 @@ The company's Enrichment Status flips to Failed and a note is added describing t
 The Enrichment Status field appears on the company record. FluentCRM does not currently expose extension points for company list columns or segment filters that would let custom company fields appear in those surfaces.
 
 == Changelog ==
+
+= 0.8.1 =
+* Reorders the settings tabs so Contact Context appears before Company Context, reflecting the more common usage pattern (most admins setting up the plugin for the first time are starting with individual contact research).
 
 = 0.8.0 =
 * New "Getting Started" panel on the settings page that walks first-time admins through the three steps needed to enrich anything: add an Anthropic API key, configure at least one Company Context module, and (optionally) configure a Contact Context module. The panel auto-hides once at least one enrichment surface is fully configured, and reappears if anything regresses.

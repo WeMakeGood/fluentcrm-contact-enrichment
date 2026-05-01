@@ -63,9 +63,9 @@ class FCE_Admin_Settings {
 
 			<h2 class="nav-tab-wrapper">
 				<?php self::render_tab_link( self::TAB_API, __( 'API Settings', 'fluentcrm-contact-enrichment' ), $tab ); ?>
+				<?php self::render_tab_link( self::TAB_CONTACT_CONTEXT, __( 'Contact Context', 'fluentcrm-contact-enrichment' ), $tab ); ?>
 				<?php self::render_tab_link( self::TAB_CONTEXT, __( 'Company Context', 'fluentcrm-contact-enrichment' ), $tab ); ?>
 				<?php self::render_tab_link( self::TAB_FOCUS, __( 'Focus Areas', 'fluentcrm-contact-enrichment' ), $tab ); ?>
-				<?php self::render_tab_link( self::TAB_CONTACT_CONTEXT, __( 'Contact Context', 'fluentcrm-contact-enrichment' ), $tab ); ?>
 				<?php self::render_tab_link( self::TAB_CAPACITY, __( 'Capacity Tiers', 'fluentcrm-contact-enrichment' ), $tab ); ?>
 				<?php self::render_tab_link( self::TAB_DANGER, __( 'Danger Zone', 'fluentcrm-contact-enrichment' ), $tab ); ?>
 			</h2>
