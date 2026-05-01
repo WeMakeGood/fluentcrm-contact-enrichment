@@ -335,6 +335,114 @@ These were open questions at the start of the build; recording the resolutions h
 4. **Test-connection button** — *Resolved: web-search round-trip.* The Test Connection request includes the `web_search_20250305` tool definition but instructs the model not to invoke it. This verifies both that the key works AND that web search is enabled at the org level (otherwise the request would be rejected at the tool-validation stage), without paying for a billable search.
 5. **System prompt baseline** — *Resolved: borrow research discipline from the dossier skill.* The system prompt now opens with adapted language for source attribution, epistemic calibration, gap-naming, and the premature-commitment check. The admin's context modules then refine this base layer with organization-specific framing. Validated live against Make Good — Claude correctly hedges on revenue ("entirely self-reported and not independently verified") and names the scale-mismatch risk in the alignment assessment.
 
+## Individual contact research (added v0.7.0)
+
+The plugin originally targeted only B2B / org-prospecting research: research the company, mirror summary fields onto linked contacts. That leaves a real gap for any use case where the *person* is the research target — not their employer.
+
+### Use cases the plugin supports (generalized)
+
+Individual research is useful across very different contexts:
+
+- **Nonprofit fundraising:** prospect research before donor outreach (capacity, philanthropic interests, alignment with mission)
+- **Cohort programs and continuing education:** participant prep before a course or program starts (leadership background, current challenges, what they're bringing to the cohort)
+- **B2B sales / partnerships:** stakeholder research before outreach (decision-making authority, professional context, relevant signals)
+- **Board recruitment:** candidate research (governance experience, mission alignment, prior relationships)
+
+The plugin treats these as one generalized capability — same machinery, different framing — because the framing comes from **admin-configurable contact context modules**. A nonprofit's modules might describe donor research; a leadership-development program's would describe cohort prep. The plugin doesn't bake in any single use case.
+
+### Why this is a different problem from org enrichment
+
+Org research answers "what kind of organization is this?" Data flows org → contact: research the company once, mirror useful fields onto every linked contact for segmentation. Individual contact research answers "who is this person, what's their context, how should we approach them?" The data is *intrinsic to the contact*, not derived from their employer. Different schema, different prompt, different validation, different ethics.
+
+### Professional standards: Apra (still the right grounding)
+
+Apra (the Association of Prospect Researchers for Advancement) is the international body for prospect-development professionals. Their [Statement of Ethics](https://www.aprahome.org/Resources/Statement-of-Ethics) is the canonical professional standard for individual research, and its principles transfer cleanly to non-fundraising use cases (cohort prep for leadership programs, B2B sales research, board recruitment). The principles are about *how* you research a person, not what you do with the findings. Verbatim:
+
+- **Integrity & Honesty:** "Act with integrity and honesty and avoid any acts, omissions, or practices that could harm"
+- **Accuracy & Competence:** "Maintain professional knowledge, accuracy, and competence appropriate to your responsibilities"
+- **Accountability:** "Accept responsibility for your professional actions and decisions"
+- **Conflicts of Interest:** "Be alert to, and manage openly, any conflicts of interest"
+- **Confidentiality:** "Respect constituents' privacy and maintain the confidentiality of constituent information"
+- **Social Media Responsibility:** "Be honest about your identity and role when using social media in your work, and do not unreasonably intrude on an individual's privacy"
+- **Data Provenance:** "Track data provenance to ensure all information is legally obtained and publicly available from reliable sources"
+
+Apra also publishes an [Ethics in AI for Fundraising Toolkit](https://www.aprahome.org/Resources/Ethics-in-AI-for-Fundraising-Toolkit) (members-only) covering: bias and errors in AI-derived data, donor privacy, third-party vendor ethical review, and continual human review of AI tools. The full text is paywalled; the categories themselves are sufficient signal for design.
+
+### The relevance principle (generalized)
+
+Apra's most consequential principle for our design: **research is restricted to information relevant to the relationship the requesting organization is trying to build.** Translation for our system prompt: Claude should not return information that doesn't bear on the use case the admin's context modules define — even if findable.
+
+For a nonprofit doing donor research, "relevant" means giving capacity, philanthropic interests, alignment with mission. For a leadership-development program doing cohort prep, "relevant" means leadership context, current challenges, what they're bringing to the program. For a B2B sales team, "relevant" means decision-making authority and buying signals. The system prompt asks Claude to read the context modules to understand what the requesting organization considers relevant, then restrict the research accordingly.
+
+This is a real prompt-engineering constraint, not just a docs note. The contact-side system prompt includes an explicit relevance gate the org prompt doesn't, and the gate is shaped by the admin's context modules.
+
+### Public sources to prefer (and to avoid)
+
+Source guidance is mostly use-case-agnostic — the same principles apply whether you're researching a donor, a cohort participant, or a partnership prospect. Synthesized from [Apra](https://www.aprahome.org/), the [AFP Code of Ethical Standards](https://afpglobal.org/topics/prospect-research), the [BWF Group's "Prospect Development in a Changing Landscape"](https://www.bwf.com/prospect-development-in-a-changing-landscape-adapting-ethical-practices-for-the-future/), [Wikipedia's prospect research overview](https://en.wikipedia.org/wiki/Prospect_research), and [Jennifer Filla's "5 Steps to Fundraising Research Ethics"](https://www.jenniferfilla.com/5-steps-to-fundraising-research-ethics/):
+
+**Verifiable financial / capacity disclosures** (load-bearing for fundraising; sometimes relevant for B2B):
+- SEC EDGAR filings (insider stock holdings, Form 4 transactions for executives)
+- FEC contribution database (political giving, often a strong philanthropic tell)
+- IRS Form 990 Schedule B / Schedule of Contributors (for foundation-attached individuals)
+- IRS Form 990-PF for private foundations (tracks the donor's foundation activity)
+- Capital campaign donor recognition (public donor walls, named gifts, public lists in annual reports)
+- Foundation board memberships and trustee rosters (public on foundation sites)
+- ProPublica Nonprofit Explorer (cross-references foundation activity)
+
+**Professional and reputational context:**
+- Employer's "About" / leadership pages (verified bios)
+- LinkedIn profile pages (career history, volunteering, board service)
+- Published interviews, books, op-eds, conference talks
+- Industry awards, professional honors
+- News coverage in professional context (not personal life)
+
+**Inferred wealth indicators (use with caution and always paired with confidence):**
+- Public real-estate transaction records (HM Land Registry, public county-assessor data) — note that aggregating these is privacy-sensitive
+- Sunday Times Rich List / Forbes / similar reference publications
+- Companies House / business ownership records
+
+**Sources to avoid:**
+- Personal-data aggregator sites (Spokeo, BeenVerified, etc.) that monetize repackaged data
+- Reverse-lookup services
+- Social media content that's not professional in nature
+- Anything that resembles surveillance or aggregation beyond what a relevant relationship would justify
+
+### Field schema
+
+Five structured fields plus three status fields plus an opt-out flag. Field names are deliberately generic (`individual_*` prefix paralleling `org_*`) so the same field set works across use cases (fundraising, cohort prep, B2B research, board recruitment).
+
+**Status (separate from company-side enrichment):**
+- `individual_enrichment_status` — Not Enriched / Pending / Processing / Complete / Failed / Restricted
+- `individual_enrichment_date` — ISO date of last successful run
+- `individual_enrichment_confidence` — High / Medium / Low
+
+**Research outputs:**
+- `individual_capacity_tier` — **admin-configurable values** (defaults: Major / Mid / Standard / Unknown). The defaults are donor-flavored; admins can rewrite them per use case (a leadership-development program might use Senior Leader / Mid-Career / Emerging / Unknown; a B2B sales team might use Decision Maker / Influencer / End User / Unknown). Same admin-edit pattern as `org_focus_areas`. The system prompt reads the configured options and instructs Claude to pick from them.
+- `individual_alignment` — Strong / Moderate / Weak / Unknown — alignment with the requesting organization's mission per the contact context modules. Vocabulary fixed.
+- `individual_engagement_readiness` — High / Medium / Low / Unknown — current likelihood of receptivity (recent activity, life events, public signals). Vocabulary fixed.
+- `individual_prior_relationship` — Yes / Possible / No / Unknown — known connection to the requesting organization or its mission. Vocabulary fixed.
+- `individual_relevant_signals_present` — Yes / No / Unknown — flag indicating whether verifiable public signals relevant to the use case were found (giving disclosures for donors, leadership credentials for cohort prep, decision-authority signals for sales). Confidence indicator, not a content claim. Vocabulary fixed.
+
+**Opt-out:**
+- `individual_research_consent` — Allowed / Restricted — admin-set per contact, defaults to Allowed. When Restricted, the enrichment job sets status to Restricted and returns without making an API call or writing data. Matches practitioner standard for fundraising and is a sensible default across other use cases.
+
+### Narrative shape
+
+Four sections, framed generically so they apply across use cases:
+- `personal_context` — career, current role, institutional affiliations, public profile; sourced inline
+- `relevant_background` — context bearing on the use case as defined by the admin's contact context modules. For donor research: known giving, board service, charitable involvement. For cohort prep: leadership experience, prior coursework, current professional challenges. For sales: decision-making authority, organizational role
+- `alignment_assessment` — fit with the requesting organization's mission and use case per the context modules
+- `recommended_approach` — practical path to engagement, framed appropriately for the use case
+
+### Architecture decisions
+
+- **Same plugin, parallel surfaces.** No fork. Add a contact-side enrichment path alongside the existing company-side path. Most of the infrastructure (Claude client, JSON parse, citation strip, markdown render, ajax button pattern) is shared.
+- **Separate context modules.** The org-research framing modules and the contact-research framing modules cover different scopes (the organization vs. the individual). Two separate admin tabs, two separate option keys. Each set carries the use-case framing for its surface — a fundraising organization's contact context modules describe donor research; a leadership program's would describe cohort prep.
+- **Separate cron hook** (`fce_run_contact_enrichment_job`) to avoid coupling the two pipelines.
+- **Notes go to subscriber notes** (not company notes), via the same `fc_subscriber_notes` table FluentCRM uses for both. Title format: "Contact Research — YYYY-MM-DD" so they're distinguishable from generic admin notes.
+- **Same-day note replacement** mirrors the company-side behavior.
+- **No mirroring to other surfaces** (unlike org → contact mirroring) — the contact's enrichment lives only on the contact.
+
 ## Future consideration: prompt caching and Files API
 
 Investigated during the v0.1.0 build but deliberately deferred to keep the initial release small. Recording the analysis here so future work has a starting point and doesn't have to redo the recon.
