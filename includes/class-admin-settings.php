@@ -382,6 +382,13 @@ Our highest-priority geographies are [list]. We can engage organizations operati
 		</script>
 
 		<?php
+		self::render_meta_prompt_widget(
+			'prompts/company-context-meta-prompt.md',
+			__( 'Generate a module with your own LLM', 'fluentcrm-contact-enrichment' ),
+			__( 'A prompt you can paste into your own LLM (Claude.ai, ChatGPT, an internal agent with your organization\'s knowledge base loaded) to interview you and produce a finished Company Context module. Useful when you want a module shaped to your specific organization rather than starting from the generic example above.', 'fluentcrm-contact-enrichment' ),
+			'fce-company-meta-prompt'
+		);
+
 		self::render_lookup_picker(
 			'company',
 			__( 'Lookup fields', 'fluentcrm-contact-enrichment' ),
@@ -730,6 +737,13 @@ Our Capacity Tiers should be set to:
 		</script>
 
 		<?php
+		self::render_meta_prompt_widget(
+			'prompts/contact-context-meta-prompt.md',
+			__( 'Generate a module with your own LLM', 'fluentcrm-contact-enrichment' ),
+			__( 'A prompt you can paste into your own LLM (Claude.ai, ChatGPT, an internal agent with your organization\'s knowledge base loaded) to interview you and produce a finished Contact Context module. The interview adapts to your use case — fundraising, cohort prep, sales, board recruitment, or something else.', 'fluentcrm-contact-enrichment' ),
+			'fce-contact-meta-prompt'
+		);
+
 		self::render_lookup_picker(
 			'contact',
 			__( 'Lookup fields', 'fluentcrm-contact-enrichment' ),
@@ -809,6 +823,124 @@ Our Capacity Tiers should be set to:
 	// ---------------------------------------------------------------------
 	// Tab savers
 	// ---------------------------------------------------------------------
+
+	/**
+	 * Render a click-to-copy widget for a meta-prompt the admin can run
+	 * in their own LLM tooling (Claude.ai, ChatGPT, an internal agent
+	 * with their org's knowledge base) to generate a context module.
+	 *
+	 * The prompt content lives as a Markdown file in docs/prompts/, so
+	 * editing the prompt doesn't require touching plugin code, and
+	 * developers / admins can read it on GitHub. We read it at render
+	 * time, gate to the plugin's docs directory to prevent path-traversal
+	 * mischief, and fail open (don't render the widget) if the file is
+	 * missing.
+	 *
+	 * @param string $relative_path  e.g. 'prompts/company-context-meta-prompt.md'
+	 * @param string $heading
+	 * @param string $description
+	 * @param string $widget_id      DOM id stem for the textarea + button
+	 * @return void
+	 */
+	private static function render_meta_prompt_widget( $relative_path, $heading, $description, $widget_id ) {
+		// Resolve and gate to the docs/ directory so a hostile $relative_path
+		// can't read files outside of intended scope.
+		$docs_root = realpath( FCE_PLUGIN_DIR . 'docs' );
+		$file_path = realpath( FCE_PLUGIN_DIR . 'docs/' . $relative_path );
+		if ( false === $docs_root || false === $file_path || 0 !== strpos( $file_path, $docs_root ) ) {
+			return;
+		}
+
+		$content = file_get_contents( $file_path );
+		if ( false === $content || '' === trim( $content ) ) {
+			return;
+		}
+
+		?>
+		<hr style="margin: 2em 0 1.5em 0;" />
+		<h3 style="margin-bottom: 0.5em;"><?php echo esc_html( $heading ); ?></h3>
+		<p style="max-width: 720px; color: #50575e;">
+			<?php echo esc_html( $description ); ?>
+		</p>
+
+		<details style="margin: 0 0 1em 0; padding: 0.75em 1em; background: #f6f7f7; border: 1px solid #c3c4c7; border-radius: 4px; max-width: 720px;">
+			<summary style="cursor: pointer; font-weight: 600;"><?php esc_html_e( 'Show meta-prompt and copy to clipboard', 'fluentcrm-contact-enrichment' ); ?></summary>
+
+			<p style="margin: 0.75em 0 0.5em 0; font-size: 13px; color: #646970;">
+				<?php esc_html_e( 'Paste this into Claude.ai, ChatGPT, or any LLM with your organization\'s context loaded. The prompt will use what your LLM already knows about you and ask only for what\'s missing, then output a finished module ready to paste back into the tab above.', 'fluentcrm-contact-enrichment' ); ?>
+			</p>
+
+			<textarea
+				id="<?php echo esc_attr( $widget_id ); ?>-textarea"
+				readonly
+				style="width: 100%; min-height: 16em; font-family: Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5;"
+			><?php echo esc_textarea( $content ); ?></textarea>
+
+			<p style="margin: 0.5em 0 0 0;">
+				<button
+					type="button"
+					class="button"
+					data-fce-copy-target="<?php echo esc_attr( $widget_id ); ?>-textarea"
+					id="<?php echo esc_attr( $widget_id ); ?>-button"
+				>
+					<?php esc_html_e( 'Copy to clipboard', 'fluentcrm-contact-enrichment' ); ?>
+				</button>
+				<span
+					id="<?php echo esc_attr( $widget_id ); ?>-status"
+					style="margin-left: 0.5em; color: #00a32a; font-size: 13px;"
+					aria-live="polite"
+				></span>
+			</p>
+		</details>
+
+		<script>
+		(function () {
+			var btn = document.getElementById('<?php echo esc_js( $widget_id ); ?>-button');
+			if (!btn || btn.dataset.fceCopyBound === '1') { return; }
+			btn.dataset.fceCopyBound = '1';
+
+			btn.addEventListener('click', function () {
+				var ta = document.getElementById(btn.getAttribute('data-fce-copy-target'));
+				var status = document.getElementById('<?php echo esc_js( $widget_id ); ?>-status');
+				if (!ta) { return; }
+
+				function flash(text) {
+					if (status) {
+						status.textContent = text;
+						setTimeout(function () { status.textContent = ''; }, 2500);
+					}
+				}
+
+				if (navigator.clipboard && navigator.clipboard.writeText) {
+					navigator.clipboard.writeText(ta.value).then(
+						function () { flash('<?php echo esc_js( __( 'Copied!', 'fluentcrm-contact-enrichment' ) ); ?>'); },
+						function () {
+							// Fallback: select + execCommand for older browsers.
+							ta.focus();
+							ta.select();
+							try {
+								document.execCommand('copy');
+								flash('<?php echo esc_js( __( 'Copied!', 'fluentcrm-contact-enrichment' ) ); ?>');
+							} catch (e) {
+								flash('<?php echo esc_js( __( 'Could not copy — select and copy manually.', 'fluentcrm-contact-enrichment' ) ); ?>');
+							}
+						}
+					);
+				} else {
+					ta.focus();
+					ta.select();
+					try {
+						document.execCommand('copy');
+						flash('<?php echo esc_js( __( 'Copied!', 'fluentcrm-contact-enrichment' ) ); ?>');
+					} catch (e) {
+						flash('<?php echo esc_js( __( 'Could not copy — select and copy manually.', 'fluentcrm-contact-enrichment' ) ); ?>');
+					}
+				}
+			});
+		})();
+		</script>
+		<?php
+	}
 
 	/**
 	 * Render a lookup-field picker. Used at the bottom of both context

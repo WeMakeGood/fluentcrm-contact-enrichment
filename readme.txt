@@ -4,7 +4,7 @@ Tags: fluentcrm, crm, claude, anthropic, ai, enrichment, research, fundraising, 
 Requires at least: 5.8
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.9.0
+Stable tag: 0.10.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -111,6 +111,10 @@ Yes. Every successful enrichment writes a four-section narrative note attached t
 The contact-side org_* fields stay populated with the previous company's values until either (a) the new company is enriched (which writes the new values), or (b) the admin clicks "Sync to Contacts" on the new company's profile section. The bulk "Resync all contacts" Danger Zone in the settings page can fix drift across many companies at once if needed.
 
 == Changelog ==
+
+= 0.10.0 =
+* Adds a "Generate a module with your own LLM" widget to both context tabs. Each surface has a meta-prompt the admin copies and pastes into their own LLM tooling (Claude.ai, ChatGPT, an internal agent with their organization's knowledge base). The LLM uses what it already knows about the user, asks only for what's missing, then produces a finished Markdown module the admin pastes back into the plugin. Click-to-copy with a clipboard fallback for older browsers.
+* Meta-prompt content lives as Markdown files under `docs/prompts/` so the prompts are also readable on GitHub for developers evaluating the plugin. The widget reads them at render time with a path-traversal guard.
 
 = 0.9.0 =
 * New "Lookup fields" picker on both context tabs. Admins can select FluentCRM custom fields whose values should be injected into every enrichment prompt as "existing data on file." Useful for fields that hold stronger signal than Claude can find via web search — giving totals from external systems, WooCommerce purchase history, course completion records, pledge data. Plugin-managed enrichment outputs are deliberately excluded to prevent feedback loops. Verified live: injecting giving-history fields into a contact-research run shifted the capacity tier output appropriately (recognizing a small-dollar sustaining donor pattern) and produced a narrative that quoted the injected values directly with proper attribution.

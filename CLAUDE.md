@@ -79,6 +79,14 @@ Use `web_search_20250305`. The newer `web_search_20260209` adds dynamic filterin
 
 Stored AES-256-CBC encrypted with a key derived from WP auth salts (`hash('sha256', AUTH_KEY . SECURE_AUTH_KEY . AUTH_SALT . 'fluentcrm-contact-enrichment', true)`). The stored value starts with `fce1:` so the version is identifiable for future migrations. A server compromise that reads `wp-config.php` can decrypt — that's the realistic threat model for WP plugins, and we don't claim to defend beyond it. The save path only updates the option when a non-empty value is posted, so resubmitting the form without retyping doesn't blank the stored key.
 
+### Meta-prompts for module generation (v0.10.0)
+
+Each context tab carries a click-to-copy widget that exposes a meta-prompt the admin can run in their own LLM (Claude.ai, ChatGPT, internal agent with their org's knowledge base) to produce a finished context module. The plugin doesn't own the conversation — the admin's LLM does, and the meta-prompt is built around the assumption that the LLM already has organizational context loaded.
+
+Meta-prompt text lives as `docs/prompts/{company,contact}-context-meta-prompt.md` so the prompts are also readable on GitHub. The widget reads them at render time via `realpath()` with a path-traversal guard (the resolved path must start with the plugin's docs directory). Missing files fail gracefully — the widget renders nothing rather than an error, so deleting a prompt file just removes the widget from the tab.
+
+The two prompts deliberately produce *finished Markdown modules in code blocks* rather than just suggestions. The admin copy-pastes the LLM's output directly into the context-modules editor without further editing in the typical case.
+
 ### Lookup field injection (v0.9.0)
 
 The plugin lets admins inject existing FluentCRM custom-field values into the enrichment prompt as "existing data on file" — facts the requesting organization already has on the record that Claude should treat as given rather than try to verify. Configured in the Company Context and Contact Context tabs (one picker per surface).
