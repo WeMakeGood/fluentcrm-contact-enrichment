@@ -4,7 +4,7 @@ Tags: fluentcrm, crm, claude, anthropic, ai, enrichment, research, fundraising, 
 Requires at least: 5.8
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.10.0
+Stable tag: 0.10.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -111,6 +111,9 @@ Yes. Every successful enrichment writes a four-section narrative note attached t
 The contact-side org_* fields stay populated with the previous company's values until either (a) the new company is enriched (which writes the new values), or (b) the admin clicks "Sync to Contacts" on the new company's profile section. The bulk "Resync all contacts" Danger Zone in the settings page can fix drift across many companies at once if needed.
 
 == Changelog ==
+
+= 0.10.1 =
+* Tightens the meta-prompts to stay on their lane. The previous prompts referenced plugin-internal configuration (capacity tier values, partnership type vocabularies, structured field schemas) that either changes over time or is already handled by the plugin's own enrichment prompt at run time. The meta-prompts now focus purely on eliciting the user's framing — mission, alignment criteria, use case definitions, what counts as relevant — and produce a finished context module from that. The plugin handles the rest.
 
 = 0.10.0 =
 * Adds a "Generate a module with your own LLM" widget to both context tabs. Each surface has a meta-prompt the admin copies and pastes into their own LLM tooling (Claude.ai, ChatGPT, an internal agent with their organization's knowledge base). The LLM uses what it already knows about the user, asks only for what's missing, then produces a finished Markdown module the admin pastes back into the plugin. Click-to-copy with a clipboard fallback for older browsers.
