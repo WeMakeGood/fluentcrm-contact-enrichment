@@ -105,7 +105,7 @@ If anything fails: `individual_enrichment_status` flips to "Failed" and a clearl
 Two additional surfaces push the company-side cache to contacts without running a fresh enrichment:
 
 - **Per-company "Sync to Contacts"** button on the company profile section (visible when status is Complete). Reads the company's cached org_* values and overwrites the matching contact custom fields on every contact whose primary `company_id` matches. Use when a contact gets attached to an already-enriched company or when contact values have drifted.
-- **Bulk "Resync all contacts"** Danger Zone in Settings → Contact Enrichment. Walks every company that has cached enrichment values and runs the per-company sync on each. Typed RESYNC confirmation, synchronous, summary count on completion. Use to repair drift across many companies after a bulk data event.
+- **Bulk "Resync all contacts"** Danger Zone in FluentCRM → Contact Enrichment. Walks every company that has cached enrichment values and runs the per-company sync on each. Typed RESYNC confirmation, synchronous, summary count on completion. Use to repair drift across many companies after a bulk data event.
 
 Both paths use the same code (`FCE_Contact_Sync`) and convert the company-side multi-select array format (`['National']`) to the comma-joined string format contacts expect (`'National'`).
 
@@ -234,7 +234,7 @@ Where the organization operates. Multi-select because organizations often span s
 | | |
 |---|---|
 | Type | `select-multi` |
-| Allowed values | **Configurable** in Settings → Contact Enrichment → Focus Areas |
+| Allowed values | **Configurable** in FluentCRM → Contact Enrichment → Focus Areas |
 | Default options (12) | Environment, Conservation, Community Development, Education, Health, Water & Sanitation, Food Security, Economic Development, Arts & Culture, Animal Welfare, Human Rights, Disaster Relief |
 
 Mission/issue areas the organization works on. The option list is admin-controlled because every organization has different relevant focus areas — the defaults are appropriate for most nonprofit-adjacent enrichment but can be reshaped to fit any vertical.

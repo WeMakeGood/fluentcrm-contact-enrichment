@@ -2,6 +2,34 @@
 
 This file briefs future Claude sessions working on this plugin. It is not user documentation — it is engineering context.
 
+## External references
+
+The plugin runs against FluentCRM and FluentCampaign Pro. Two reference sources are expected:
+
+**FluentCRM source code** lives at `../fluent-crm/` and `../fluentcampaign-pro/` relative to this plugin. Use these for current behavior — what's actually running on this install.
+
+**FluentCRM developer documentation** is the authoritative source for filter and action hook names, parameter signatures, and documented extension surfaces. The docs are not in the FluentCRM source — they live in a separate repository at https://github.com/fluentcrm/fluent-crm-developers-docs.
+
+Before doing substantive FluentCRM API work (registering hooks, looking up filter signatures, finding extension points), clone or refresh the docs:
+
+```bash
+# Fresh clone if missing
+git clone --depth 1 https://github.com/fluentcrm/fluent-crm-developers-docs.git /tmp/fluent-crm-developers-docs
+
+# Refresh if present
+git -C /tmp/fluent-crm-developers-docs pull
+```
+
+Key entry points within the cloned docs:
+
+- `src/hooks/filters/admin-and-dashboard.md` — admin menu, settings, dashboard, permissions, admin_vars
+- `src/hooks/filters/webhooks-and-integrations.md` — import providers, migrators, purchase history providers, form submission providers, advanced report providers
+- `src/hooks/actions/integrations.md` — third-party integration events (Fluent Forms, WooCommerce, SureCart)
+- `src/modules/index.md` — the canonical list of public extension points (automation components, smart codes, profile sections, event tracking, REST API)
+- `src/global-functions/extender-api-function.md` — the `FluentCrmApi('extender')` surface (`addProfileSection`, `addCompanyProfileSection`, `addSmartCode`)
+
+The docs are versioned in their own repo with their own release cadence; pull periodically to stay current with what FluentCRM has actually published.
+
 ## What this plugin does
 
 The plugin has two parallel research surfaces:
@@ -52,6 +80,73 @@ The registered FluentCRM API key is `extender` (some external docs say `extend` 
 - `method_exists($extender, 'addCompanyProfileSection')` returns `false` even when the call works, because the proxy doesn't reflect the underlying `Extender` class's methods. Don't gate on `method_exists()`.
 - The proxy catches exceptions in `__call` and returns `null`. A failed call is silent. Wrap in try/catch and treat null as success.
 
+### FluentCRM hook names: not what you'd guess
+
+A latent bug audit during the v1.0.0 cut-over found we were hooking and firing two hook names FluentCRM doesn't actually use. The hooks went through `add_action` / `do_action` without error — they just silently did nothing.
+
+**Correct names:**
+
+- **`fluent_crm/after_init`** — fires on every request after FluentCRM bootstraps. We hook this in `FCE_Field_Registrar::register_hooks()` for the idempotent fields-exist pass. **Not** `fluent_crm/after_init_app` (no such hook exists).
+- **`fluent_crm/note_added`** and **`fluent_crm/note_updated`** — fire when contact notes are written. We emit these from `FCE_Enrichment_Job` so listeners can react to research notes the same way they react to admin-written notes. **Not** `fluent_crm/subscriber_note_added` / `_updated` (despite the column being `subscriber_id` and the model being `SubscriberNote`, the hook is just `note_*`).
+- Company side is `fluent_crm/company_note_added` / `_updated` (no contact-side parallel — see above).
+
+**Lesson:** if a FluentCRM hook seems to do nothing, grep their source for `do_action.*'fluent_crm/.*<your-guess>` before assuming you've got the wrong listener wired. The hook names don't always match the table or model name.
+
+### Vue admin UI architecture (v1.0.0)
+
+The settings page is a Vue 3 + Element Plus app (source under `src/admin/`, built to `dist/admin/`). PHP just registers the WP admin page, enqueues the bundle, and emits a `<div id="fce-admin">` mount point. `FCE_Admin_Settings::render_page()` is the single entry point.
+
+**Build pipeline.** Vite. `npm install` once, `npm run build` produces `dist/admin/admin.js` (~2MB raw, ~700KB gzipped — Element Plus + md-editor-v3 are the bulk) and `dist/admin/admin.css`. The `dist/` directory is **committed** so end-user installs don't need a build step (same pattern as `vendor/erusev/parsedown/`). Vite chunks for lazy-loaded CodeMirror language modes also land in `dist/admin/`; we don't reference them directly but they ship in the release zip.
+
+**Why we ship our own Vue.** FluentCRM 3.0's SPA bundles its own Vue + Element Plus, but they're ESM imports with minified internal names — not a stable runtime surface we can rely on. Loading them from CDN would create a network dependency. Bundling our own is predictable, version-locked, and works offline. The tradeoff is bundle size (~700KB gzipped); we accept it because admins load the settings page rarely.
+
+**Routing.** Vue Router 4 with `createWebHashHistory`. The WP admin URL stays `admin.php?page=fluentcrm-contact-enrichment`; tabs live in the hash (`#/dashboard`, `#/contact-context/modules?moduleIndex=2`). Server doesn't need rewrite rules. Deep links work; reload preserves the tab; back/forward navigates within tabs.
+
+**Tab definitions are in one place.** `src/admin/router.js` exports `tabs` — a single array shared by both the router (routes registered from it) and `AppShell` (tab nav renders from it). Visibility is filtered by `window.FCEAdmin.companyOn` so company tabs disappear when the FluentCRM Company module is off.
+
+**REST instead of admin-post.** Vue components talk to PHP via `wp-json/fce/v1/*` endpoints (see `FCE_REST_Controller`). The old `admin-post.php?action=fce_save_settings` and `admin-post.php?action=fce_bulk_resync` handlers are gone in v1.0.0. Every endpoint requires the `fcrm_manage_settings`-equivalent capability (`FCE_CAPABILITY`) plus the standard WP REST nonce (`X-WP-Nonce` header).
+
+**Unsaved-changes guard.** `useUnsavedChangesGuard` composable in `src/admin/composables/`. Each form-bearing tab passes a `dirty` ref; the composable installs both `window.beforeunload` (catches reload/close) and a `router.beforeEach` guard (catches in-app tab navigation). Subtab navigation within the same parent tab doesn't trigger the prompt — only cross-tab changes do. Browser ignores custom messages on `beforeunload` by design; in-app uses native `confirm()`.
+
+**WordPress form-CSS conflict.** WP admin's `forms.css` applies `input[type="text"] { border, box-shadow, ... }` globally, which double-paints over Element Plus's wrapper border. The `<App />` template includes a scoped reset (in `App.vue`, unscoped `<style>`) that strips those properties from inputs/selects inside Element Plus wrappers. **Textareas are intentionally NOT reset** because Element Plus's `<el-input type="textarea">` puts its border directly on the `<textarea>` element — stripping it would kill the visible boundary. See the comment in `App.vue`.
+
+**Markdown editor.** `md-editor-v3` (Vue 3 native, ~200KB gzipped). Configured with a curated toolbar (no image upload, no katex, no mermaid). Toolbar includes preview / preview-only / fullscreen modes. The editor's height is constrained via CSS (480px) so the Active toggle stays on-screen.
+
+**Component layout.**
+
+```
+src/admin/
+├── main.js                 entry: createApp + mount
+├── App.vue                 orchestrator + WP-form-CSS reset
+├── router.js               routes + shared tab metadata
+├── api.js                  REST client (focusAreas, capacityTiers, contextModules, lookupFields, metaPrompt, bulkResync)
+├── components/             reusable UI pieces
+│   ├── AppShell.vue        header + tab nav + body slot
+│   ├── TabNav.vue          el-tabs wired to router
+│   ├── HealthBanner.vue    warning-state banner (hidden when ready)
+│   ├── ModulesSubtab.vue   two-column module manager
+│   ├── ModuleListItem.vue  single row in the modules rail
+│   ├── ModuleEditor.vue    md-editor-v3 + title + active toggle
+│   ├── LookupFieldsSubtab.vue   help text + show-slugs toggle
+│   ├── LookupFieldPicker.vue    grouped collapsible checkbox picker
+│   └── MetaPromptWidget.vue     click-to-copy meta-prompt
+├── composables/
+│   ├── useNotify.js                ElMessage wrapper
+│   └── useUnsavedChangesGuard.js   beforeunload + router guard
+└── tabs/                   one file per top-level tab
+    ├── Dashboard.vue
+    ├── ContactContext.vue  thin wrapper around ContextModulesTab
+    ├── CompanyContext.vue  thin wrapper around ContextModulesTab
+    ├── ContextModulesTab.vue   shared shell with subtabs
+    ├── FocusAreas.vue
+    ├── CapacityTiers.vue
+    └── DangerZone.vue
+```
+
+**Adding a new tab** requires four touches: add a route to `router.js`, drop a `.vue` file in `tabs/`, add a REST endpoint to `FCE_REST_Controller`, and add the API methods to `api.js`. The pattern is well-trodden — Focus Areas and Capacity Tiers are near-mirrors of each other and useful as templates.
+
+**Why we don't render inside FluentCRM's SPA.** Pro modules (Sequences, SMS, Advanced Reports) appear inside FluentCRM's SPA because they're compiled into FluentCRM's Vite build at release time — not registered from outside. The dev docs index every public extension point, and none of them supports SPA route registration from an external plugin. So the best-supported architecture for us is: register a sidebar entry via `fluent_crm/core_menu_items` (handled in `FCE_Admin_Settings::register_spa_sidebar_item`) that links to our standalone admin page; render our own Vue app on that page using FluentCRM's design tokens for visual continuity.
+
 ### Click handler: admin_footer + event delegation, not inline script
 
 FluentCRM's Vue admin renders `content_html` from a profile section via `domProps:{innerHTML: t._s(t.content_html)}`. **`innerHTML` does not execute embedded `<script>` tags** — that's a standard DOM security behaviour, not a Vue choice. The Enrich button's click handler is therefore enqueued in `admin_footer` (gated to FluentCRM screens by `strpos($screen->id, 'fluentcrm-admin')`) and uses event delegation against `document`. The button itself carries `data-company-id`, `data-nonce`, and `data-ajax-url` attributes; the handler reads all of those from the click target so we don't have to inline page state into the script.
@@ -73,11 +168,26 @@ The `cited_text` field on the Claude client's return value (where structured cit
 
 ### Web search tool version
 
-Use `web_search_20250305`. The newer `web_search_20260209` adds dynamic filtering but **requires the code-execution tool to also be enabled** — heavier dependency, no upside for this use case. The org admin must also enable web search at the org level in the Claude Console; the Test Connection button verifies this without spending a billable search round (it includes the tool definition but tells the model not to invoke it).
+Use `web_search_20250305`. The newer `web_search_20260209` adds dynamic filtering but **requires the code-execution tool to also be enabled** — heavier dependency, no upside for this use case. Web search must be enabled at the Anthropic org level too; that's a Claude Console setting, not something the plugin can verify.
 
-### API key encryption
+### Provider integration via FluentCRM 3.0's AI config (v1.0.0)
 
-Stored AES-256-CBC encrypted with a key derived from WP auth salts (`hash('sha256', AUTH_KEY . SECURE_AUTH_KEY . AUTH_SALT . 'fluentcrm-contact-enrichment', true)`). The stored value starts with `fce1:` so the version is identifiable for future migrations. A server compromise that reads `wp-config.php` can decrypt — that's the realistic threat model for WP plugins, and we don't claim to defend beyond it. The save path only updates the option when a non-empty value is posted, so resubmitting the form without retyping doesn't blank the stored key.
+The plugin reads its API credentials from FluentCRM 3.0's AI configuration rather than managing its own key. Two options together:
+
+- **`get_option('_fluent_ai_creds')`** — standard WP option containing `provider` (claude/open_ai/gemini), `api_key`, `model` (concrete model id or the literal `'auto'`), and `created_by`. Sensitive.
+- **`fluentcrm_get_option('_ai_writing_settings')`** — FluentCRM's structured option store. Holds `is_enabled` ('yes'/'no') and `custom_prompt`. The `is_enabled` gate must be `'yes'` for the plugin to run.
+
+`FCE_Provider_Bridge::get_credentials()` is the single read path. It throws `FCE_Provider_Unavailable` (a `RuntimeException` subclass) when anything is missing or wrong, with a human-readable message that the call-site code uses verbatim as the enrichment failure text. The bridge also exposes `inspect()` (no-throw, returns a status array) and `is_ready()` (boolean) for UI checks.
+
+**Provider gating.** v1.0.0 supports Claude only, even though the bridge architecture supports all three providers. Constant `FCE_Provider_Bridge::SUPPORTED_PROVIDERS = ['claude']`. The OpenAI and Gemini adapters arrive in v1.0.1. Until then, an install configured for OpenAI or Gemini hits the `'unsupported'` status state in `inspect()` — banner shows "Configured for unsupported provider," and Enrich is disabled.
+
+**Why we don't call FluentCRM's `AiController` provider methods directly.** They're `private` and have no filter hooks. They also lack three things we need: a `tools` array (web search), `response_format` (structured JSON output), and a configurable `max_tokens` (theirs is hardcoded at 2048). The right long-term fix is for FluentCRM to publish a public client API — there's a ticket filed with WPMN — and until that ships, we implement the per-provider HTTP plumbing ourselves in `FCE_Claude_Adapter` and (later) `FCE_OpenAI_Adapter` / `FCE_Gemini_Adapter`.
+
+**Auto-model resolution.** FluentCRM stores `'auto'` as a literal model value; the bridge resolves it to the same per-provider defaults FluentCRM's own `AiController::$autoProviderModels` table uses. Mirroring their defaults means admins who pick "auto" in FluentCRM AI settings get the same model FluentCRM's email-writing features get.
+
+### Pre-v1.0.0 API key encryption (legacy migration only)
+
+Pre-v1.0.0 the plugin stored an AES-256-CBC encrypted Anthropic key in `fce_api_key` (key derived from WP auth salts, ciphertext prefixed with `fce1:`). v1.0.0 removed all writes through this path; the decrypt code remains as a private helper used only by `FCE_Migration_Notice`, which surfaces the legacy key to the admin one time so they can paste it into FluentCRM's AI config. The notice has a 30-day grace window after which the option is auto-deleted via `admin_init`. After enough time has passed in the field, the decrypt code itself will be removed too — see `FCE_Admin_Settings::decrypt()`.
 
 ### Meta-prompts for module generation (v0.10.0)
 
@@ -190,12 +300,18 @@ The settings tab "Focus Areas" stores its option list in `fce_focus_area_options
 - `fluentcrm-contact-enrichment.php` — bootstrap, constants, hook wiring
 - `includes/class-field-registrar.php` — auto-creates fields, runs heal pass
 - `includes/class-context-modules.php` — Markdown module CRUD
-- `includes/class-claude-client.php` — Anthropic Messages API HTTP client
+- `includes/class-provider-bridge.php` — reads FluentCRM 3.0's AI credentials (v1.0.0+)
+- `includes/class-provider-client.php` — dispatcher + Claude adapter (v1.0.0+); OpenAI / Gemini adapters added in v1.0.1
+- `includes/class-claude-client.php` — thin backward-compatible wrapper that delegates to FCE_Provider_Client
 - `includes/class-data-mapper.php` — JSON extraction + value validation
 - `includes/class-lookup-fields.php` — read FluentCRM custom field definitions and inject selected values as "existing data on file" prompt context (v0.9.0+)
 - `includes/class-contact-sync.php` — push company-side cached values to linked contacts (per-company + bulk paths)
 - `includes/class-enrichment-job.php` — WP-Cron handler, the full pipeline
-- `includes/class-admin-settings.php` — Settings → Contact Enrichment, three tabs
+- `includes/class-admin-settings.php` — thin PHP wiring for the admin page: registers the WP submenu under FluentCRM → Contact Enrichment, adds an entry to FluentCRM's SPA sidebar, enqueues the Vue bundle. Also keeps the legacy API-key decryption helpers for the migration notice.
+- `includes/class-rest-controller.php` — REST surface for the Vue app (`fce/v1/focus-areas`, `capacity-tiers`, `context-modules/{surface}`, `lookup-fields/{surface}`, `meta-prompt/{surface}`, `bulk-resync`). All endpoints require `FCE_CAPABILITY` + WP REST nonce.
+- `src/admin/` — Vue 3 source for the admin UI (see "Vue admin UI architecture" above)
+- `dist/admin/` — built Vue bundle, committed to the repo
+- `includes/class-migration-notice.php` — one-time admin notice surfacing the pre-v1.0.0 encrypted API key (v1.0.0+)
 - `includes/class-company-section.php` — company profile section + Enrich button + Sync to Contacts + ajax
 - `includes/class-contact-section.php` — contact profile section + Enrich button + ajax (v0.7.0+)
 - `vendor/erusev/parsedown/` — bundled Markdown→HTML library

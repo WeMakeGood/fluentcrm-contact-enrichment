@@ -4,7 +4,7 @@ Tags: fluentcrm, crm, claude, anthropic, ai, enrichment, research, fundraising, 
 Requires at least: 5.8
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.10.1
+Stable tag: 1.0.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -45,19 +45,20 @@ A per-contact `individual_research_consent` field (default Allowed) lets admins 
 
 == Installation ==
 
-1. Install [FluentCRM](https://wordpress.org/plugins/fluent-crm/) and activate it. The plugin will not function without FluentCRM.
+1. Install [FluentCRM 3.0 or later](https://wordpress.org/plugins/fluent-crm/) and activate it. The plugin will not function without FluentCRM 3.0+.
 2. Upload the plugin folder to `wp-content/plugins/fluentcrm-contact-enrichment/`, or install through the WordPress plugin admin.
 3. Activate FluentCRM Contact Enrichment.
-4. Go to **Settings → Contact Enrichment**. The Getting Started panel walks you through the three steps to be ready to enrich:
-   * Add your Anthropic API key (sign up at [console.anthropic.com](https://console.anthropic.com))
-   * Configure at least one Company Context module (for company research) or Contact Context module (for individual research) — both tabs include starter examples you can copy
-   * Click "Test Connection" on the API Settings tab to confirm the key works and that web search is enabled at your Anthropic organization level
-5. Open any FluentCRM company or contact profile. The "Enrichment" section in the sidebar carries the Enrich button.
+4. Configure AI in **FluentCRM → Settings → AI Configuration**: set the provider to Claude, paste your Anthropic API key, and turn AI on.
+5. Go to **FluentCRM → Contact Enrichment** and configure at least one Company Context module (for company research) or Contact Context module (for individual research). Both tabs include starter examples you can copy.
+6. Open any FluentCRM company or contact profile. The "Enrichment" section in the sidebar carries the Enrich button.
 
 = Required configuration =
 
-* An Anthropic API key with web search enabled at the organization level. You can verify this in your [Claude Console privacy settings](https://platform.claude.com/settings/privacy) — look for the Web Search toggle.
-* FluentCRM 2.5 or later, installed and active.
+* FluentCRM 3.0 or later, installed and active.
+* FluentCRM's AI configuration set to Claude with a valid Anthropic API key and `Enable AI` turned on.
+* Web search enabled at your Anthropic organization level. Verify this in your [Claude Console privacy settings](https://platform.claude.com/settings/privacy) — look for the Web Search toggle.
+
+OpenAI and Gemini support is planned for v1.0.1. v1.0.0 runs against Claude only.
 
 == Frequently Asked Questions ==
 
@@ -111,6 +112,17 @@ Yes. Every successful enrichment writes a four-section narrative note attached t
 The contact-side org_* fields stay populated with the previous company's values until either (a) the new company is enriched (which writes the new values), or (b) the admin clicks "Sync to Contacts" on the new company's profile section. The bulk "Resync all contacts" Danger Zone in the settings page can fix drift across many companies at once if needed.
 
 == Changelog ==
+
+= 1.0.0 =
+* **New admin UI.** The entire settings page is now a Vue 3 + Element Plus application. Six tabs (Dashboard, Contact Context, Company Context, Focus Areas, Capacity Tiers, Danger Zone) with a real Markdown editor for context modules, drag-to-reorder lists, grouped collapsible lookup-field picker, deep-linkable URLs, and unsaved-changes guards on every form.
+* **Admin lives under FluentCRM, not WP Settings.** The Contact Enrichment admin page is now under **FluentCRM → Contact Enrichment** in the WP admin sidebar, plus a sidebar entry inside FluentCRM's Vue admin so it's reachable from inside the SPA.
+* **Profile sections restyled** to match FluentCRM 3.0's design language — Element Plus button conventions, status badges, FluentCRM utility classes, AI provider–agnostic copy.
+* **Requires FluentCRM 3.0 or later.** This release adopts FluentCRM's built-in AI provider configuration as the single source of truth for the API key and model.
+* **Removes the plugin's own API key storage.** The "API Settings" tab is gone. Configure AI in FluentCRM → Settings → AI Configuration: set the provider to Claude, paste your Anthropic key, and enable AI. The plugin reads from there.
+* **One-time migration notice** surfaces the pre-1.0.0 encrypted key so admins can paste it into FluentCRM's settings. Notice is dismissable, with a 30-day grace window before the legacy option is auto-deleted.
+* **Company module detection.** Company-related features (Company Context, Danger Zone, company profile section, the contact-side mirror fields) are gated on FluentCRM's optional Company module being enabled. Contact-only installs see a cleaner UI.
+* **Provider architecture is multi-provider but Claude-only in v1.0.0.** The bridge supports Claude, OpenAI, and Gemini in principle; only the Claude adapter is implemented in v1.0.0. Installs configured for OpenAI or Gemini see a clear "Configured for unsupported provider" message. OpenAI and Gemini adapters arrive in v1.0.1.
+* **Latent hook-name bugs fixed.** Two FluentCRM hooks the plugin was using turned out to not exist (`fluent_crm/after_init_app`, `fluent_crm/subscriber_note_added`). The correct names (`fluent_crm/after_init`, `fluent_crm/note_added`) are now wired up.
 
 = 0.10.1 =
 * Tightens the meta-prompts to stay on their lane. The previous prompts referenced plugin-internal configuration (capacity tier values, partnership type vocabularies, structured field schemas) that either changes over time or is already handled by the plugin's own enrichment prompt at run time. The meta-prompts now focus purely on eliciting the user's framing — mission, alignment criteria, use case definitions, what counts as relevant — and produce a finished context module from that. The plugin handles the rest.

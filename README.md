@@ -56,7 +56,8 @@ fluentcrm-contact-enrichment/
 │   ├── class-lookup-fields.php        inject FluentCRM custom-field values into prompts
 │   ├── class-contact-sync.php         push company-cached values to contacts
 │   ├── class-enrichment-job.php       WP-Cron handlers for both surfaces
-│   ├── class-admin-settings.php       Settings → Contact Enrichment (6 tabs)
+│   ├── class-admin-settings.php       FluentCRM → Contact Enrichment admin page wiring (Vue mount)
+│   ├── class-rest-controller.php      REST API surface (fce/v1) for the Vue admin UI
 │   ├── class-company-section.php      company profile section + Enrich button
 │   └── class-contact-section.php      contact profile section + Enrich button
 ├── docs/
@@ -112,16 +113,18 @@ Field definitions are auto-created on activation and idempotent on re-activation
 
 ### Configuration
 
-All admin configuration lives at **Settings → Contact Enrichment**:
+All admin configuration lives in **FluentCRM → Contact Enrichment** (a Vue 3 admin app under FluentCRM's submenu). Six tabs:
 
-- **API Settings** — Anthropic API key (encrypted at rest using WordPress auth salts), model selection, max searches per enrichment, Test Connection button
-- **Contact Context** — Markdown modules framing the use case for individual research (donor prospecting, cohort prep, sales, board recruitment). Includes three starter examples. Also includes a lookup-field picker for selecting FluentCRM contact custom fields whose values should be injected into the prompt as "existing data on file" — useful for fields that hold stronger signal than Claude can find publicly (giving totals from external systems, WooCommerce purchase history, course completion records). Also includes a click-to-copy meta-prompt admins can run in their own LLM to generate a context module via interview.
-- **Company Context** — Markdown modules framing how the requesting organization thinks about company research. Includes one starter example. Same lookup-field picker and meta-prompt patterns as the contact tab.
-- **Focus Areas** — admin-editable values for the `org_focus_areas` multi-select field
-- **Capacity Tiers** — admin-editable values for the `individual_capacity_tier` field (defaults are donor-flavored; rewrite for non-fundraising use cases)
-- **Danger Zone** — bulk "Resync all contacts" with typed confirmation gate
+- **Dashboard** — plugin orientation, your current configured state (provider, web search, company module), Make Good attribution
+- **Contact Context** — split into two subtabs:
+  - *Modules* — Markdown context modules with a Markdown editor (md-editor-v3), list+detail layout, drag-to-reorder, starter examples for common use cases (donor prospecting, cohort prep, B2B sales/partnership), and a click-to-copy meta-prompt for generating modules via your own LLM
+  - *Lookup Fields* — grouped, collapsible picker for FluentCRM custom fields whose values are injected into the enrichment prompt as "existing data on file" (giving history, WooCommerce orders, course completions, internal scoring)
+- **Company Context** — same two-subtab pattern, surface-specific copy (visible only when FluentCRM's Company module is enabled)
+- **Focus Areas** — drag-to-reorder vocabulary for the `org_focus_areas` multi-select field
+- **Capacity Tiers** — drag-to-reorder vocabulary for the `individual_capacity_tier` field, with a "restore donor-flavored defaults" affordance
+- **Danger Zone** — bulk "Resync all contacts" with typed-confirm gate (visible only when the Company module is enabled)
 
-The Getting Started panel above the tabs auto-hides once at least one enrichment surface is fully configured. It re-appears if anything regresses.
+The API key, model, and provider configuration come from **FluentCRM → Settings → AI Configuration** — the plugin reads FluentCRM's existing AI credentials rather than managing its own. The Dashboard tab shows the current configured state with links into FluentCRM's settings if anything needs adjustment.
 
 ## Privacy and ethics
 
@@ -162,6 +165,16 @@ The plugin has been verified live throughout its development against a real Word
 - **[CLAUDE.md](CLAUDE.md)** — engineering context for future maintainers (and AI assistants) working on the plugin. Documents non-obvious decisions, FluentCRM API quirks, and the rationale behind specific design choices.
 - **[docs/fluentcrm-enrichment-research.md](docs/fluentcrm-enrichment-research.md)** — pre-build reconnaissance, decisions made during the build, deferred features (prompt caching, Files API), and the research-doc record for individual contact research.
 - **[docs/fields-reference.md](docs/fields-reference.md)** — operational reference for all custom fields the plugin creates and manages.
+
+### FluentCRM developer documentation
+
+Filter and action hook names, parameter signatures, and FluentCRM's documented extension surfaces live in a separate repository, not in the FluentCRM source. For substantive work on FluentCRM integration code, clone the docs locally:
+
+```bash
+git clone --depth 1 https://github.com/fluentcrm/fluent-crm-developers-docs.git /tmp/fluent-crm-developers-docs
+```
+
+Refresh with `git -C /tmp/fluent-crm-developers-docs pull` before significant work — FluentCRM updates the docs as their platform evolves.
 
 ### Contributing
 
