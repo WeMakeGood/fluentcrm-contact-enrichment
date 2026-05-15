@@ -1,0 +1,93 @@
+# Release workflow: fires when a `v*` tag is pushed (e.g. v1.0.0,
+# v1.0.1). Builds the Vue admin bundle to ensure dist/ matches src/,
+# packages the plugin as a .zip excluding everything listed in
+# .distignore, then creates a GitHub Release from the tag with that
+# zip attached.
+#
+# To cut a release:
+#   1. Bump version in fluentcrm-contact-enrichment.php (plugin header
+#      AND the FCE_VERSION constant) and Stable tag in readme.txt.
+#   2. Commit the version bump.
+#   3. Tag the commit:
+#        git tag -a v1.2.3 -m "..."
+#   4. Push:
+#        git push origin main && git push origin v1.2.3
+#   5. This workflow fires on the tag push.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Vue admin bundle
+        # dist/ is committed to the repo, but rebuilding here guarantees
+        # the released zip ships the build that matches the tagged src/.
+        run: npm run build
+
+      - name: Extract version from tag
+        id: version
+        # Strip leading "v" from tag (v1.2.3 -> 1.2.3) for filename + matching.
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract changelog entry for this version
+        # Pull just the `= 1.2.3 =` block from readme.txt and use it as
+        # the release body. Falls back to a generic note if the block
+        # isn't found.
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          # Match the version heading, then capture lines until the next heading or EOF.
+          ENTRY=$(awk -v ver="= $VERSION =" '
+            $0 == ver {found=1; next}
+            found && /^= [0-9]/ {exit}
+            found {print}
+          ' readme.txt)
+          if [ -z "$ENTRY" ]; then
+            ENTRY="See readme.txt for release notes."
+          fi
+          {
+            echo 'body<<EOF_RELEASE_BODY'
+            echo "$ENTRY"
+            echo EOF_RELEASE_BODY
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Package plugin zip
+        # 10up's action reads .distignore and produces a clean WP plugin
+        # zip. The action expects the plugin slug as the input; the zip
+        # lands at <slug>.zip in the workspace.
+        uses: 10up/action-wordpress-plugin-build-zip@stable
+        with:
+          generate-zip: true
+        env:
+          SLUG: fluentcrm-contact-enrichment
+          VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: v${{ steps.version.outputs.version }}
+          body: ${{ steps.changelog.outputs.body }}
+          files: fluentcrm-contact-enrichment.zip
+          draft: false
+          prerelease: false
