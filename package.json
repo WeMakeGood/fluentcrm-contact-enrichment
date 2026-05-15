@@ -1,0 +1,23 @@
+{
+  "name": "fluentcrm-contact-enrichment-admin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Admin UI for the FluentCRM Contact Enrichment plugin. Vue 3 + Element Plus, built with Vite, output to dist/ which is committed to the repo.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
+    "element-plus": "^2.8.0",
+    "md-editor-v3": "^6.5.0",
+    "vue": "^3.5.0",
+    "vue-router": "^4.6.4",
+    "vuedraggable": "^4.1.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.1.0",
+    "vite": "^5.4.0"
+  }
+}

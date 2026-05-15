@@ -7,7 +7,7 @@
  * Author URI:      https://wemakegood.org
  * Text Domain:     fluentcrm-contact-enrichment
  * Domain Path:     /languages
- * Version:         0.10.1
+ * Version:         1.0.0
  * License:         GPL-2.0-or-later
  * License URI:     https://www.gnu.org/licenses/gpl-2.0.html
  * Requires Plugins: fluent-crm
@@ -17,11 +17,9 @@
 
 defined( 'ABSPATH' ) || exit;
 
-const FCE_VERSION = '0.10.1';
+const FCE_VERSION = '1.0.0';
 
 const FCE_OPT_API_KEY        = 'fce_api_key';
-const FCE_OPT_MODEL          = 'fce_model';
-const FCE_OPT_MAX_SEARCHES   = 'fce_max_searches';
 const FCE_OPT_CONTEXT_MODS   = 'fce_context_modules';
 const FCE_OPT_FOCUS_AREAS    = 'fce_focus_area_options';
 const FCE_OPT_CONTACT_MODS   = 'fce_contact_context_modules';
@@ -39,11 +37,9 @@ const FCE_AJAX_TRIGGER       = 'fce_trigger_enrichment';
 const FCE_AJAX_CONTACT       = 'fce_trigger_contact_enrichment';
 const FCE_AJAX_SYNC          = 'fce_sync_company_to_contacts';
 
-const FCE_NONCE_SETTINGS     = 'fce_save_settings';
 const FCE_NONCE_TRIGGER      = 'fce_trigger_enrichment_nonce';
 const FCE_NONCE_CONTACT      = 'fce_trigger_contact_enrichment_nonce';
 const FCE_NONCE_SYNC         = 'fce_sync_nonce';
-const FCE_NONCE_BULK_RESYNC  = 'fce_bulk_resync_nonce';
 
 // Company-side field slugs.
 const FCE_FIELD_STATUS       = 'enrichment_status';
@@ -68,21 +64,26 @@ define( 'FCE_PLUGIN_FILE', __FILE__ );
 define( 'FCE_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'FCE_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
+require_once FCE_PLUGIN_DIR . 'includes/class-fluentcrm-compat.php';
 require_once FCE_PLUGIN_DIR . 'includes/class-field-registrar.php';
 require_once FCE_PLUGIN_DIR . 'includes/class-context-modules.php';
+require_once FCE_PLUGIN_DIR . 'includes/class-provider-bridge.php';
+require_once FCE_PLUGIN_DIR . 'includes/class-provider-client.php';
 require_once FCE_PLUGIN_DIR . 'includes/class-claude-client.php';
 require_once FCE_PLUGIN_DIR . 'includes/class-data-mapper.php';
 require_once FCE_PLUGIN_DIR . 'includes/class-lookup-fields.php';
 require_once FCE_PLUGIN_DIR . 'includes/class-contact-sync.php';
 require_once FCE_PLUGIN_DIR . 'includes/class-enrichment-job.php';
 require_once FCE_PLUGIN_DIR . 'includes/class-admin-settings.php';
+require_once FCE_PLUGIN_DIR . 'includes/class-rest-controller.php';
+require_once FCE_PLUGIN_DIR . 'includes/class-migration-notice.php';
 require_once FCE_PLUGIN_DIR . 'includes/class-company-section.php';
 require_once FCE_PLUGIN_DIR . 'includes/class-contact-section.php';
 
 /**
  * Activation: register all custom fields. FluentCRM may not be active at the
  * time this runs; the registrar tolerates that and re-runs on the
- * `fluent_crm/after_init_app` hook.
+ * `fluent_crm/after_init` hook.
  */
 register_activation_hook( __FILE__, array( 'FCE_Field_Registrar', 'on_activate' ) );
 
@@ -99,6 +100,8 @@ function fce_bootstrap() {
 	FCE_Field_Registrar::register_hooks();
 	FCE_Enrichment_Job::register_hooks();
 	FCE_Admin_Settings::register_hooks();
+	FCE_REST_Controller::register_hooks();
+	FCE_Migration_Notice::register_hooks();
 	FCE_Company_Section::register_hooks();
 	FCE_Contact_Section::register_hooks();
 }
