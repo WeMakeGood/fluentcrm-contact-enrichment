@@ -14,7 +14,7 @@ class FCE_Field_Registrar {
 	public static function register_hooks() {
 		// Defensive re-run if FluentCRM activates after we did, or if our
 		// activation fired before FluentCRM was loaded.
-		add_action( 'fluent_crm/after_init_app', array( __CLASS__, 'ensure_fields' ) );
+		add_action( 'fluent_crm/after_init', array( __CLASS__, 'ensure_fields' ) );
 
 		// If fluentcrm-company-rollups is also active, exclude our org_*
 		// slugs from its rollup configuration UI and computation. The
@@ -55,7 +55,7 @@ class FCE_Field_Registrar {
 	/**
 	 * Activation hook. Field creation is best-effort here; FluentCRM may not
 	 * be loaded yet (multisite activate-on-network, alphabetical plugin load
-	 * order). The `fluent_crm/after_init_app` hook covers that case.
+	 * order). The `fluent_crm/after_init` hook covers that case.
 	 */
 	public static function on_activate() {
 		self::ensure_fields();
@@ -72,10 +72,20 @@ class FCE_Field_Registrar {
 		}
 
 		self::ensure_contact_fields();
-		self::ensure_company_fields();
 		self::heal_field_types();
-		self::sync_org_sector_options();
-		self::heal_company_org_cache();
+
+		// Company-side state is meaningful only when FluentCRM's optional
+		// Company module is enabled. Skipping these calls on contact-only
+		// installs keeps us from creating field definitions that never
+		// surface in the UI and from running healers against tables the
+		// admin never sees. The registrar is re-run on the
+		// fluent_crm/after_init hook on every request, so enabling
+		// the module later picks up automatically.
+		if ( FCE_FluentCRM_Compat::is_company_module_enabled() ) {
+			self::ensure_company_fields();
+			self::sync_org_sector_options();
+			self::heal_company_org_cache();
+		}
 	}
 
 	/**
@@ -94,6 +104,10 @@ class FCE_Field_Registrar {
 			$desired_types[ $def['slug'] ] = $def['type'];
 		}
 		self::heal_in( '\\FluentCrm\\App\\Models\\CustomContactField', $desired_types );
+
+		if ( ! FCE_FluentCRM_Compat::is_company_module_enabled() ) {
+			return;
+		}
 
 		$desired_types = array();
 		foreach ( self::company_field_definitions() as $def ) {
@@ -458,7 +472,7 @@ class FCE_Field_Registrar {
 	 *
 	 * Falls back to a single "Unknown" entry when FluentCRM hasn't loaded
 	 * yet (e.g. during plugin activation before FluentCRM's bootstrap
-	 * runs). The heal pass on `fluent_crm/after_init_app` rewrites the
+	 * runs). The heal pass on `fluent_crm/after_init` rewrites the
 	 * options later in the same request.
 	 *
 	 * @return array<int, string>
@@ -502,7 +516,11 @@ class FCE_Field_Registrar {
 		$desired_options = self::company_industries();
 
 		$contact_changed = self::rewrite_field_options( '\\FluentCrm\\App\\Models\\CustomContactField', 'org_sector', $desired_options );
-		$company_changed = self::rewrite_field_options( '\\FluentCrm\\App\\Models\\CustomCompanyField', 'org_sector', $desired_options );
+
+		$company_changed = false;
+		if ( FCE_FluentCRM_Compat::is_company_module_enabled() ) {
+			$company_changed = self::rewrite_field_options( '\\FluentCrm\\App\\Models\\CustomCompanyField', 'org_sector', $desired_options );
+		}
 
 		if ( $contact_changed || $company_changed ) {
 			self::clear_invalid_org_sector_values( $desired_options );
@@ -727,7 +745,10 @@ class FCE_Field_Registrar {
 
 		$options = self::focus_area_options();
 		self::rewrite_field_options( '\\FluentCrm\\App\\Models\\CustomContactField', 'org_focus_areas', $options );
-		self::rewrite_field_options( '\\FluentCrm\\App\\Models\\CustomCompanyField', 'org_focus_areas', $options );
+
+		if ( FCE_FluentCRM_Compat::is_company_module_enabled() ) {
+			self::rewrite_field_options( '\\FluentCrm\\App\\Models\\CustomCompanyField', 'org_focus_areas', $options );
+		}
 	}
 
 	/**
@@ -744,7 +765,18 @@ class FCE_Field_Registrar {
 			: array();
 
 		$existing_slugs = self::existing_slugs( $existing );
-		$desired        = self::contact_field_definitions();
+
+		// When the company module is off, skip the org_* mirrors — they only
+		// make sense as a mirror of company data, and exposing them on
+		// contacts without companies confuses admins ("where did this Org
+		// Type field come from?"). Stored values stay in wp_fc_subscriber_meta;
+		// removing the definition only hides them from the FluentCRM UI.
+		// Enabling the module again re-adds them on the next request via
+		// fluent_crm/after_init.
+		$company_enabled = FCE_FluentCRM_Compat::is_company_module_enabled();
+		$desired = $company_enabled
+			? self::contact_field_definitions()
+			: self::individual_field_definitions();
 
 		$added = false;
 		foreach ( $desired as $field ) {
@@ -755,7 +787,22 @@ class FCE_Field_Registrar {
 			}
 		}
 
-		if ( $added ) {
+		$removed = false;
+		if ( ! $company_enabled ) {
+			$mirror_slugs = self::org_field_slugs();
+			foreach ( $existing as $i => $field ) {
+				$slug = isset( $field['slug'] ) ? (string) $field['slug'] : '';
+				if ( '' !== $slug && in_array( $slug, $mirror_slugs, true ) ) {
+					unset( $existing[ $i ] );
+					$removed = true;
+				}
+			}
+			if ( $removed ) {
+				$existing = array_values( $existing );
+			}
+		}
+
+		if ( $added || $removed ) {
 			$model->saveGlobalFields( $existing );
 		}
 	}

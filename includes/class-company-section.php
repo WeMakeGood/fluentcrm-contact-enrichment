@@ -91,6 +91,14 @@ class FCE_Company_Section {
 			return;
 		}
 
+		// Company profile page is hidden when the FluentCRM Company module
+		// is off. Registering the section would still work, but the page
+		// never loads — skip the hook so we don't pollute the registration
+		// table on contact-only installs.
+		if ( ! FCE_FluentCRM_Compat::is_company_module_enabled() ) {
+			return;
+		}
+
 		try {
 			$extender = FluentCrmApi( 'extender' );
 			if ( $extender && method_exists( $extender, '__call' ) ) {
@@ -125,78 +133,86 @@ class FCE_Company_Section {
 		$ajax_url = esc_url( admin_url( 'admin-ajax.php' ) );
 		$nonce    = wp_create_nonce( FCE_NONCE_TRIGGER );
 
+		$badge_class = self::badge_class_for_status( $status );
+		$settings_url = admin_url( 'admin.php?page=' . FCE_MENU_SLUG ) . '#/company-context';
+
 		ob_start();
 		?>
-		<div class="fce-section" style="padding: 1em 0;">
-			<dl class="fce-grid" style="display: grid; grid-template-columns: max-content 1fr; gap: 0.4em 1em; margin: 0 0 1em 0;">
-				<dt><strong><?php esc_html_e( 'Status', 'fluentcrm-contact-enrichment' ); ?></strong></dt>
-				<dd id="fce-status-value"><?php echo esc_html( $status ); ?></dd>
+		<div class="fce-section" style="padding: 0 20px 16px 20px;">
+			<ul class="fc_full_listed fcrm_customer_summary_list" style="margin: 0 0 16px 0;">
+				<li>
+					<span class="fc_list_sub"><?php esc_html_e( 'Status', 'fluentcrm-contact-enrichment' ); ?></span>
+					<span class="fc_list_value" id="fce-status-value">
+						<span class="fcrm_badge <?php echo esc_attr( $badge_class ); ?>"><?php echo esc_html( $status ); ?></span>
+					</span>
+				</li>
 
 				<?php if ( '' !== $date ) : ?>
-					<dt><strong><?php esc_html_e( 'Last enriched', 'fluentcrm-contact-enrichment' ); ?></strong></dt>
-					<dd><?php echo esc_html( $date ); ?></dd>
+					<li>
+						<span class="fc_list_sub"><?php esc_html_e( 'Last enriched', 'fluentcrm-contact-enrichment' ); ?></span>
+						<span class="fc_list_value"><?php echo esc_html( $date ); ?></span>
+					</li>
 				<?php endif; ?>
 
 				<?php if ( '' !== $confidence ) : ?>
-					<dt><strong><?php esc_html_e( 'Confidence', 'fluentcrm-contact-enrichment' ); ?></strong></dt>
-					<dd><?php echo esc_html( $confidence ); ?></dd>
+					<li>
+						<span class="fc_list_sub"><?php esc_html_e( 'Confidence', 'fluentcrm-contact-enrichment' ); ?></span>
+						<span class="fc_list_value"><?php echo esc_html( $confidence ); ?></span>
+					</li>
 				<?php endif; ?>
-			</dl>
+			</ul>
 
-			<button type="button"
-				id="fce-enrich-button"
-				data-company-id="<?php echo (int) $company->id; ?>"
-				data-ajax-url="<?php echo $ajax_url; ?>"
-				data-nonce="<?php echo esc_attr( $nonce ); ?>"
-				class="el-button el-button--primary"
-				<?php disabled( $is_running ); ?>>
-				<?php
-				if ( $is_running ) {
-					esc_html_e( 'Queued — refresh to see status', 'fluentcrm-contact-enrichment' );
-				} elseif ( 'Complete' === $status ) {
-					esc_html_e( 'Re-enrich This Company', 'fluentcrm-contact-enrichment' );
-				} else {
-					esc_html_e( 'Enrich This Company', 'fluentcrm-contact-enrichment' );
-				}
-				?>
-			</button>
-
-			<?php if ( 'Complete' === $status ) : ?>
+			<div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;">
 				<button type="button"
-					id="fce-sync-button"
+					id="fce-enrich-button"
 					data-company-id="<?php echo (int) $company->id; ?>"
 					data-ajax-url="<?php echo $ajax_url; ?>"
-					data-nonce="<?php echo esc_attr( wp_create_nonce( FCE_NONCE_SYNC ) ); ?>"
-					class="el-button el-button--default"
-					style="margin-left: 0.5em;">
-					<?php esc_html_e( 'Sync to Contacts', 'fluentcrm-contact-enrichment' ); ?>
+					data-nonce="<?php echo esc_attr( $nonce ); ?>"
+					class="el-button el-button--primary"
+					<?php disabled( $is_running ); ?>>
+					<?php
+					if ( $is_running ) {
+						esc_html_e( 'Queued — refresh to see status', 'fluentcrm-contact-enrichment' );
+					} elseif ( 'Complete' === $status ) {
+						esc_html_e( 'Re-enrich This Company', 'fluentcrm-contact-enrichment' );
+					} else {
+						esc_html_e( 'Enrich This Company', 'fluentcrm-contact-enrichment' );
+					}
+					?>
 				</button>
-			<?php endif; ?>
+
+				<?php if ( 'Complete' === $status ) : ?>
+					<button type="button"
+						id="fce-sync-button"
+						data-company-id="<?php echo (int) $company->id; ?>"
+						data-ajax-url="<?php echo $ajax_url; ?>"
+						data-nonce="<?php echo esc_attr( wp_create_nonce( FCE_NONCE_SYNC ) ); ?>"
+						class="el-button el-button--default">
+						<?php esc_html_e( 'Sync to Contacts', 'fluentcrm-contact-enrichment' ); ?>
+					</button>
+				<?php endif; ?>
+			</div>
 
 			<?php if ( $last_note ) : ?>
-				<p style="margin-top: 1em;">
-					<small>
-						<?php esc_html_e( 'Most recent enrichment note:', 'fluentcrm-contact-enrichment' ); ?>
-						<em><?php echo esc_html( $last_note->title ); ?></em>
-						(<?php echo esc_html( $last_note->created_at ); ?>)
-					</small>
+				<p style="margin: 0 0 8px 0; color: var(--fc-secondary-text); font-size: 13px;">
+					<?php esc_html_e( 'Most recent enrichment note:', 'fluentcrm-contact-enrichment' ); ?>
+					<em><?php echo esc_html( $last_note->title ); ?></em>
+					(<?php echo esc_html( $last_note->created_at ); ?>)
 				</p>
 			<?php endif; ?>
 
-			<p style="margin-top: 1em;">
-				<small>
-					<?php
-					printf(
-						/* translators: %s: link to settings page */
-						esc_html__( 'Enrichment uses the Anthropic API with web search. %s', 'fluentcrm-contact-enrichment' ),
-						sprintf(
-							'<a href="%s">%s</a>',
-							esc_url( admin_url( 'options-general.php?page=' . FCE_MENU_SLUG ) ),
-							esc_html__( 'Configure context modules and focus areas →', 'fluentcrm-contact-enrichment' )
-						)
-					);
-					?>
-				</small>
+			<p style="margin: 0; color: var(--fc-secondary-text); font-size: 13px;">
+				<?php
+				printf(
+					/* translators: %s: link to settings page */
+					esc_html__( 'Enrichment uses the AI provider configured in FluentCRM with web search. %s', 'fluentcrm-contact-enrichment' ),
+					sprintf(
+						'<a href="%s">%s</a>',
+						esc_url( $settings_url ),
+						esc_html__( 'Configure context modules and focus areas →', 'fluentcrm-contact-enrichment' )
+					)
+				);
+				?>
 			</p>
 		</div>
 
@@ -460,6 +476,26 @@ class FCE_Company_Section {
 	private static function status_for( $company ) {
 		$status = self::custom_value( $company, FCE_FIELD_STATUS );
 		return '' !== $status ? $status : 'Not Enriched';
+	}
+
+	/**
+	 * Map our enrichment status values to FluentCRM's standard badge classes.
+	 * The names match the .fcrm_badge_* classes defined in FluentCRM's
+	 * app3.css so our pill renders with the same visual language as native
+	 * order / submission / contact status badges.
+	 *
+	 * @param string $status
+	 * @return string
+	 */
+	private static function badge_class_for_status( $status ) {
+		$map = array(
+			'Complete'     => 'fcrm_badge_complete',
+			'Pending'      => 'fcrm_badge_pending',
+			'Processing'   => 'fcrm_badge_processing',
+			'Failed'       => 'fcrm_badge_failed',
+			'Not Enriched' => 'fcrm_badge_inactive',
+		);
+		return isset( $map[ $status ] ) ? $map[ $status ] : 'fcrm_badge_plain';
 	}
 
 	/**
