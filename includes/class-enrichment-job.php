@@ -912,12 +912,12 @@ SCHEMA;
 				'description' => $data['description'],
 				'created_at'  => $data['created_at'],
 			) )->save();
-			do_action( 'fluent_crm/subscriber_note_updated', $existing, $contact, $data );
+			do_action( 'fluent_crm/note_updated', $existing, $contact, $data );
 			return;
 		}
 
 		$note = \FluentCrm\App\Models\SubscriberNote::create( $data );
-		do_action( 'fluent_crm/subscriber_note_added', $note, $contact, $data );
+		do_action( 'fluent_crm/note_added', $note, $contact, $data );
 	}
 
 	/**
@@ -1013,7 +1013,7 @@ SCHEMA;
 
 		try {
 			$note = \FluentCrm\App\Models\SubscriberNote::create( $data );
-			do_action( 'fluent_crm/subscriber_note_added', $note, $contact, $data );
+			do_action( 'fluent_crm/note_added', $note, $contact, $data );
 		} catch ( \Throwable $e ) {
 			self::log( 'failed to write contact failure note: ' . $e->getMessage() );
 		}
