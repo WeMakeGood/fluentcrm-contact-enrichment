@@ -73,15 +73,28 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Package plugin zip
-        # 10up's action reads .distignore and produces a clean WP plugin
-        # zip. The action expects the plugin slug as the input; the zip
-        # lands at <slug>.zip in the workspace.
-        uses: 10up/action-wordpress-plugin-build-zip@stable
-        with:
-          generate-zip: true
-        env:
-          SLUG: fluentcrm-contact-enrichment
-          VERSION: ${{ steps.version.outputs.version }}
+        # Build the zip ourselves rather than rely on a third-party
+        # action. The 10up action is designed for plugins already on
+        # WordPress.org SVN; ours isn't. So: copy the checkout into a
+        # staging directory named after the plugin slug (WordPress
+        # plugin zips must contain a single top-level directory), then
+        # zip it while excluding everything in .distignore.
+        #
+        # Translates .distignore patterns into rsync --exclude-from
+        # format. .distignore uses gitignore-style patterns which
+        # rsync mostly understands; the slug-named staging dir keeps
+        # WP admin's "Upload Plugin" install path working correctly.
+        run: |
+          set -euo pipefail
+          SLUG=fluentcrm-contact-enrichment
+          STAGING="/tmp/$SLUG"
+          rm -rf "$STAGING"
+          mkdir -p "$STAGING"
+          rsync -a --exclude-from=.distignore --exclude='.git' --exclude='.github' --exclude='node_modules' ./ "$STAGING/"
+          cd /tmp
+          zip -r "$SLUG.zip" "$SLUG" -q
+          mv "$SLUG.zip" "$GITHUB_WORKSPACE/$SLUG.zip"
+          ls -la "$GITHUB_WORKSPACE/$SLUG.zip"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
